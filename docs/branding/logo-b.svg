@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 160" width="660" height="160" role="img" aria-label="Lifunze — Tema B Teal">
+  <!-- Icon tile -->
+  <rect x="16" y="32" width="96" height="96" rx="26" fill="#0FA3A3"/>
+  <path d="M64,52 L68.5,75.5 L92,80 L68.5,84.5 L64,108 L59.5,84.5 L36,80 L59.5,75.5 Z" fill="#B8E62E"/>
+  <!-- Wordmark -->
+  <text x="136" y="103" font-family="'Plus Jakarta Sans','Segoe UI',Arial,sans-serif" font-size="63" font-weight="800" letter-spacing="-1.5"><tspan fill="#0B2422">li</tspan><tspan fill="#0FA3A3">fun</tspan><tspan fill="#0B2422">ze</tspan></text>
+</svg>
