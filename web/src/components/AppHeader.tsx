@@ -31,6 +31,8 @@ export default function AppHeader({ user }: { user: User }) {
         {(user.role === "guru" || user.role === "admin") && <Link href="/siswa">Kelola Siswa</Link>}
         {user.role === "admin" && <Link href="/admin/users">Kelola User</Link>}
         {(user.role === "guru" || user.role === "admin") && <Link href="/bank">Bank</Link>}
+        {(user.role === "guru" || user.role === "admin") && <Link href="/paket">Paket Parser</Link>}
+        {(user.role === "guru" || user.role === "admin") && <Link href="/generate">✨ Generate AI</Link>}
         {(user.role === "guru" || user.role === "admin") && <Link href="/pengaturan-ai">Pengaturan AI</Link>}
         <Link href="/ganti-password">Ganti Password</Link>
         <span className="muted">

@@ -8,7 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import settings
-from .routers import admin_users, ai_settings, auth, bank, materials, quizzes, students, subjects
+from .routers import (
+    admin_users,
+    ai_settings,
+    auth,
+    bank,
+    generate,
+    materials,
+    packs,
+    quizzes,
+    students,
+    subjects,
+)
 from .tcml import parse_material, parse_quiz_mcq, parse_quiz_text
 from .tcml.registry import MODULES
 
@@ -30,6 +41,8 @@ app.include_router(subjects.router)
 app.include_router(materials.router)
 app.include_router(bank.router)
 app.include_router(quizzes.router)
+app.include_router(packs.router)
+app.include_router(generate.router)
 
 
 class ParseKind(str, Enum):
