@@ -4,13 +4,28 @@ from enum import Enum
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .routers import admin_users, ai_settings, auth, students
 from .tcml import parse_material, parse_quiz_mcq, parse_quiz_text
 from .tcml.registry import MODULES
 
-app = FastAPI(title="Lifunze API", version="0.1.0")
+app = FastAPI(title="Lifunze API", version="0.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router)
+app.include_router(admin_users.router)
+app.include_router(students.router)
+app.include_router(ai_settings.router)
 
 
 class ParseKind(str, Enum):

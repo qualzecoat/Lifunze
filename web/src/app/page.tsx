@@ -24,6 +24,9 @@ export default function Home() {
         TCML — tempat belajar dan mengajar yang seru dan mudah berkat bantuan
         teknologi. <strong>Learning is fun, zero effort.</strong>
       </p>
+      <a href="/login" className="btn btn-primary" style={{ fontSize: "1rem", padding: "12px 32px" }}>
+        Masuk ke Lifunze →
+      </a>
       <p
         style={{
           fontSize: ".85rem",

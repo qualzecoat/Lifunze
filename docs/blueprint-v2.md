@@ -522,7 +522,7 @@ Seluruh usulan berikut **disetujui Qualze 2026-10-20** dan sudah didistribusikan
 | Fase | Isi | Keluaran |
 |---|---|---|
 | **0 — Fondasi** | Scaffold monorepo (web/api), Docker Compose, PostgreSQL + Alembic; TCML engine modular (inti + registry + modul bawaan v1) di-porting; test parser v1 jadi baseline regresi | Engine TCML v2 lolos test lama |
-| **1 — Akun, RBAC & Pengaturan AI** | Auth 1 portal; provisioning guru/siswa + `created_by` + bulk CSV + audit log + soft-delete; panel kelola user; **menu Pengaturan AI per akun** (base URL, key terenkripsi, fetch model, tes koneksi) | Sistem akun & koneksi AI siap |
+| **1 — Akun, RBAC & Pengaturan AI** | Auth 1 portal; provisioning guru/siswa + `created_by` + bulk CSV + audit log + soft-delete; panel kelola user; **menu Pengaturan AI per akun** (base URL, key terenkripsi, fetch model, tes koneksi) | ✅ Selesai 2026-10-20 |
 | **2 — Pembelajaran inti** | Subject → Meeting → Material (editor TCML + preview + cache render), upload file, enrollment, dashboard 3 role, **arsip mapel** (fitur 9) | Alur baca materi end-to-end |
 | **3 — Kuis v2** | Engine kuis baru (questions/options/attempts ternormalisasi), **jendela waktu & durasi** (fitur 1), **bobot & multi-jawaban-benar** (fitur 6), editor + endpoint parse, penilaian esai, **export nilai** (fitur 7) | Alur kuis end-to-end, melampaui v1 |
 | **4 — Bank** | Bank materi & kuis + kategori + snapshot JSONB + copy antar guru; **bank soal & susun kuis acak** (fitur 5) + acak soal/opsi saat pengerjaan | Bank fungsional penuh |

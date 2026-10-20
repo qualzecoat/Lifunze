@@ -11,5 +11,5 @@ COPY app app
 
 EXPOSE 8000
 
-# Jalankan migrasi dulu, baru API. SECRET_KEY & kredensial wajib dari env (Fase 1).
-CMD sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+# Migrasi + seed admin (idempoten; no-op bila env admin tidak diatur), baru API.
+CMD sh -c "alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"

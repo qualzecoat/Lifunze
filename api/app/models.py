@@ -56,6 +56,22 @@ class User(Base, TimestampMixin):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class UserSession(Base):
+    """Sesi login server-side (cookie httpOnly berisi token sesi).
+
+    Server-side (bukan JWT stateless) agar logout, penonaktifan akun, dan
+    reset password benar-benar mencabut akses saat itu juga.
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)  # token sesi
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    csrf_token: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
