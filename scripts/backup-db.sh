@@ -5,14 +5,18 @@
 set -euo pipefail
 
 BACKUP_DIR="${LIFUNZE_BACKUP_DIR:-/home/sirius/lifunze-backup}"
+PROJECT_DIR="${LIFUNZE_PROJECT_DIR:-/opt/sirius/projects/lifunze}"
 COMPOSE_DIR="${LIFUNZE_COMPOSE_DIR:-/opt/sirius/compose/lifunze}"
 mkdir -p "$BACKUP_DIR"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/lifunze-$STAMP.sql.gz"
 
-cd "$COMPOSE_DIR"
-docker compose exec -T db pg_dump -U "${POSTGRES_USER:-lifunze}" "${POSTGRES_DB:-lifunze}" | gzip > "$OUT"
+docker compose \
+  -f "$PROJECT_DIR/docker-compose.yml" \
+  -f "$COMPOSE_DIR/docker-compose.sirius.yml" \
+  --env-file "$COMPOSE_DIR/secrets.env" \
+  exec -T db pg_dump -U "${POSTGRES_USER:-lifunze}" "${POSTGRES_DB:-lifunze}" | gzip > "$OUT"
 
 # Retensi: hapus backup lebih tua dari 7 hari
 find "$BACKUP_DIR" -name 'lifunze-*.sql.gz' -mtime +7 -delete
