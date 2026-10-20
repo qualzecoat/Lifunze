@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import TabsBar from "@/components/TabsBar";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface Pack {
@@ -62,6 +63,11 @@ export default function GeneratePage() {
   const [pubSubject, setPubSubject] = useState("");
   const [pubMeeting, setPubMeeting] = useState("");
   const [publishFor, setPublishFor] = useState<number | null>(null);
+  type TabKey = "buat" | "impor" | "draf";
+  const [tab, setTab] = useState<TabKey>("buat");
+  const [okLink, setOkLink] = useState<{ label: string; href: string } | null>(null);
+  const [filterDraf, setFilterDraf] = useState<"semua" | "belum" | "terbit" | "invalid">("semua");
+  const [previewFor, setPreviewFor] = useState<number | null>(null);
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -74,6 +80,8 @@ export default function GeneratePage() {
       if (!u) return router.push("/login");
       if (u.role === "siswa") return router.push("/dashboard");
       setUser(u);
+      const awal = new URLSearchParams(window.location.search).get("tab");
+      if (awal && ["buat", "impor", "draf"].includes(awal)) setTab(awal as TabKey);
       try {
         const mine = await apiFetch<Pack[]>("/api/v1/packs");
         const shared = await apiFetch<Pack[]>("/api/v1/packs/shared");
@@ -99,6 +107,25 @@ export default function GeneratePage() {
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
 
+  function gantiTab(k: TabKey) {
+    setTab(k);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", k);
+    window.history.replaceState(null, "", url.toString());
+  }
+
+  function showOk(teks: string, link?: { label: string; href: string }) {
+    setOk(teks);
+    setOkLink(link ?? null);
+  }
+
+  const draftsTampil = drafts.filter((d) =>
+    filterDraf === "semua" ? true
+    : filterDraf === "terbit" ? d.status === "published"
+    : filterDraf === "invalid" ? !d.is_valid
+    : d.status !== "published" && d.is_valid,
+  );
+
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -121,10 +148,11 @@ export default function GeneratePage() {
       });
       setDrafts((prev) => [...res.drafts, ...prev]);
       const validCount = res.drafts.filter((d) => d.is_valid).length;
-      setOk(
+      showOk(
         `Generate selesai: ${res.drafts.length} dokumen, ${validCount} valid. ` +
           (validCount < res.drafts.length ? "Dokumen invalid bisa diperbaiki otomatis (maks 2x) atau diedit manual." : ""),
       );
+      gantiTab("draf");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generate gagal.");
     } finally {
@@ -146,7 +174,8 @@ export default function GeneratePage() {
       });
       setDrafts((prev) => [...res.drafts, ...prev]);
       setImpTeks("");
-      setOk(`Impor selesai: ${res.drafts.length} dokumen menjadi draf.`);
+      showOk(`Impor selesai: ${res.drafts.length} dokumen menjadi draf.`);
+      gantiTab("draf");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impor gagal.");
     } finally {
@@ -159,7 +188,7 @@ export default function GeneratePage() {
     try {
       const updated = await apiFetch<Draft>(`/api/v1/generate/drafts/${d.id}/repair`, { method: "POST" });
       setDrafts((prev) => prev.map((x) => (x.id === d.id ? updated : x)));
-      setOk(updated.is_valid ? "Draf berhasil diperbaiki dan kini valid." : "Sudah diperbaiki, tapi masih ada error — lihat daftar errornya.");
+      showOk(updated.is_valid ? "Draf berhasil diperbaiki dan kini valid." : "Sudah diperbaiki, tapi masih ada error — lihat daftar errornya.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Perbaikan gagal.");
     }
@@ -168,7 +197,7 @@ export default function GeneratePage() {
   async function saveBank(d: Draft) {
     try {
       await apiFetch(`/api/v1/generate/drafts/${d.id}/save-bank`, { method: "POST", body: {} });
-      setOk(`Draf "${d.judul}" tersimpan ke Bank.`);
+      showOk(`Draf "${d.judul}" tersimpan ke Bank.`, { label: "Buka Bank →", href: "/bank" });
       loadDrafts();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan ke bank.");
@@ -182,10 +211,15 @@ export default function GeneratePage() {
         `/api/v1/generate/drafts/${d.id}/publish`,
         { method: "POST", body: { meeting_id: Number(pubMeeting) } },
       );
-      setOk(`Draf "${d.judul}" diterbitkan ke pertemuan.`);
+      const hasilId = res.material_id ?? res.quiz_id;
+      showOk(
+        `Draf "${d.judul}" diterbitkan ke pertemuan.`,
+        hasilId
+          ? { label: "Lihat hasilnya →", href: res.quiz_id ? `/kuis/${res.quiz_id}` : `/materi/${res.material_id}` }
+          : undefined,
+      );
       setPublishFor(null);
       loadDrafts();
-      if (res.quiz_id) router.push(`/kuis/${res.quiz_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menerbitkan draf.");
     }
@@ -206,7 +240,16 @@ export default function GeneratePage() {
         divalidasi dua lapis (sintaks + skema paket) — tidak pernah terbit otomatis; Anda meninjau dulu.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
-      {ok && <div className="alert alert-ok">{ok}</div>}
+      {ok && (
+        <div className="alert alert-ok">
+          {ok}{" "}
+          {okLink && (
+            <Link className="btn btn-sm" style={{ marginLeft: 8 }} href={okLink.href}>
+              {okLink.label}
+            </Link>
+          )}
+        </div>
+      )}
 
       {settings.length === 0 && (
         <div className="alert alert-error">
@@ -219,6 +262,17 @@ export default function GeneratePage() {
         </div>
       )}
 
+      <TabsBar
+        active={tab}
+        onChange={(k) => gantiTab(k as TabKey)}
+        tabs={[
+          { key: "buat", label: "✨ Buat dengan AI" },
+          { key: "impor", label: "📥 Impor TCML" },
+          { key: "draf", label: `📝 Draf Saya (${drafts.length})` },
+        ]}
+      />
+
+      <div style={{ display: tab === "buat" ? undefined : "none" }}>
       <form className="card" onSubmit={onGenerate}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
           <div>
@@ -268,13 +322,36 @@ export default function GeneratePage() {
           {busy ? "⏳ AI sedang menulis..." : "✨ Generate"}
         </button>
       </form>
+      </div>
 
+      <div style={{ display: tab === "impor" ? undefined : "none" }}>
       <div className="card" style={{ marginTop: 14 }}>
         <h3>📥 Impor TCML dari LLM Eksternal</h3>
         <p className="muted" style={{ margin: "6px 0" }}>
           Sudah memakai paket yang diekspor .md di ChatGPT/Claude/dll? Tempel hasilnya di sini — dokumen dipecah dan
-          divalidasi terhadap paket & jenis konten yang dipilih di form atas, lalu menjadi draf.
+          divalidasi terhadap paket & jenis konten yang dipilih di bawah ini, lalu menjadi draf.
         </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12, margin: "8px 0" }}>
+          <div>
+            <label className="label">Jenis konten</label>
+            <select className="select" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+              <option value="materi">Materi / Latihan / Proyek</option>
+              <option value="kuis_pg">Kuis Pilihan Ganda</option>
+              <option value="kuis_esai">Kuis Esai</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Paket parser</label>
+            <select className="select" value={packId} onChange={(e) => setPackId(e.target.value)}>
+              <option value="">— pilih paket —</option>
+              {packs.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nama}{p.punya_saya ? "" : ` (dari ${p.pemilik?.nama_lengkap ?? p.pemilik?.username})`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <textarea
           className="textarea"
           rows={6}
@@ -287,9 +364,29 @@ export default function GeneratePage() {
           📥 Impor sebagai Draf
         </button>
       </div>
+      </div>
 
+      <div style={{ display: tab === "draf" ? undefined : "none" }}>
       <h3 style={{ margin: "20px 0 10px" }}>Draf Saya ({drafts.length})</h3>
-      {drafts.map((d) => (
+      <div className="row-actions" style={{ marginBottom: 12 }}>
+        {(
+          [
+            ["semua", `Semua (${drafts.length})`],
+            ["belum", `Belum terbit (${drafts.filter((d) => d.status !== "published" && d.is_valid).length})`],
+            ["terbit", `Terbit (${drafts.filter((d) => d.status === "published").length})`],
+            ["invalid", `Tidak valid (${drafts.filter((d) => !d.is_valid).length})`],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            className={`btn btn-sm${filterDraf === k ? " btn-primary" : ""}`}
+            onClick={() => setFilterDraf(k)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {draftsTampil.map((d) => (
         <div className="card" key={d.id} style={{ marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <strong>{d.judul}</strong>
@@ -317,6 +414,9 @@ export default function GeneratePage() {
             <pre style={{ whiteSpace: "pre-wrap", fontFamily: "'JetBrains Mono', monospace", fontSize: ".8rem", marginTop: 6 }}>{d.teks_mentah}</pre>
           </details>
           <div className="row-actions" style={{ marginTop: 10 }}>
+            <button className="btn btn-sm" onClick={() => setPreviewFor(previewFor === d.id ? null : d.id)}>
+              {previewFor === d.id ? "🙈 Tutup Pratinjau" : "👁️ Pratinjau"}
+            </button>
             {!d.is_valid && <button className="btn btn-sm btn-primary" onClick={() => repair(d)}>🛠️ Perbaiki Otomatis</button>}
             {d.is_valid && d.status !== "published" && (
               <>
@@ -324,8 +424,14 @@ export default function GeneratePage() {
                 <button className="btn btn-sm" onClick={() => setPublishFor(publishFor === d.id ? null : d.id)}>📤 Terbitkan ke Pertemuan</button>
               </>
             )}
+            {d.status === "published" && d.published_id && (
+              <Link className="btn btn-sm" href={d.jenis === "quiz" ? `/kuis/${d.published_id}` : `/materi/${d.published_id}`}>
+                🔎 Lihat Hasil
+              </Link>
+            )}
             <button className="btn btn-sm btn-danger" onClick={() => removeDraft(d)}>Hapus</button>
           </div>
+          {previewFor === d.id && <DraftPreview draft={d} />}
           {publishFor === d.id && (
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               <select className="select" style={{ maxWidth: 220 }} value={pubSubject} onChange={(e) => { setPubSubject(e.target.value); setPubMeeting(""); }}>
@@ -346,6 +452,92 @@ export default function GeneratePage() {
         </div>
       ))}
       {drafts.length === 0 && <p className="muted">Belum ada draf. Hasil generate akan muncul di sini.</p>}
+      {drafts.length > 0 && draftsTampil.length === 0 && (
+        <p className="muted">Tidak ada draf pada filter ini.</p>
+      )}
+      </div>
     </main>
+  );
+}
+
+interface QuizPreview {
+  questions: {
+    pertanyaan: string;
+    bobot: number;
+    options: { teks: string; is_correct: boolean }[];
+    jawaban_referensi?: string | null;
+  }[];
+}
+
+/** Pratinjau render draf — guru meninjau hasil jadi (bukan teks TCML mentah). */
+function DraftPreview({ draft }: { draft: Draft }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [quiz, setQuiz] = useState<QuizPreview | null>(null);
+  const [gagal, setGagal] = useState("");
+
+  useEffect(() => {
+    let hidup = true;
+    (async () => {
+      try {
+        if (draft.jenis === "quiz") {
+          const r = await apiFetch<{ success: boolean; content: QuizPreview }>(
+            "/api/v1/parse/quiz",
+            {
+              method: "POST",
+              body: {
+                teks: draft.teks_mentah,
+                tipe: draft.tipe_quiz === "teks" ? "teks" : "pilihan_ganda",
+              },
+            },
+          );
+          if (hidup) setQuiz(r.content);
+        } else {
+          const r = await apiFetch<{ success: boolean; content: string }>(
+            "/api/v1/parse/content",
+            { method: "POST", body: { teks: draft.teks_mentah, jenis: "material" } },
+          );
+          if (hidup) setHtml(r.content);
+        }
+      } catch {
+        if (hidup) setGagal("Pratinjau tidak bisa dimuat.");
+      }
+    })();
+    return () => {
+      hidup = false;
+    };
+  }, [draft]);
+
+  return (
+    <div style={{ marginTop: 12, borderTop: "1px dashed var(--border)", paddingTop: 10 }}>
+      <p className="muted" style={{ marginBottom: 8 }}>Pratinjau — tampilan seperti yang dilihat siswa:</p>
+      {gagal && <p className="muted">{gagal}</p>}
+      {!gagal && html === null && quiz === null && <p className="muted">Memuat pratinjau...</p>}
+      {html !== null && (
+        <div className="contoh-doc-wrap">
+          <div className="tcml" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      )}
+      {quiz !== null && (
+        <div className="contoh-doc-wrap">
+          {quiz.questions.map((q, i) => (
+            <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <p>
+                <strong>
+                  {i + 1}. {q.pertanyaan}
+                </strong>{" "}
+                <span className="badge">bobot {q.bobot}</span>
+              </p>
+              {q.options.map((o, j) => (
+                <p key={j} style={{ color: o.is_correct ? "var(--ok)" : undefined }}>
+                  {o.is_correct ? "✅" : "▫️"} {String.fromCharCode(65 + j)}. {o.teks}
+                </p>
+              ))}
+              {q.jawaban_referensi && <p className="muted">Referensi: {q.jawaban_referensi}</p>}
+            </div>
+          ))}
+          {quiz.questions.length === 0 && <p className="muted">(Tidak ada soal terbaca.)</p>}
+        </div>
+      )}
+    </div>
   );
 }

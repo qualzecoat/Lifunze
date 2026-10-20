@@ -23,7 +23,7 @@ from ..access import (
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user, require_csrf
-from ..models import Material, MaterialFile, SavedMaterial, User
+from ..models import Material, MaterialFile, Meeting, SavedMaterial, User
 from ..tcml import parse_material
 
 router = APIRouter(tags=["materials"])
@@ -85,6 +85,30 @@ def material_out(m: Material, subject_id: int | None = None) -> dict:
         ],
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+    }
+
+
+def _material_navigation(db: Session, subject_id: int, current_id: int) -> dict:
+    """Materi sebelum/sesudah dalam urutan kelas (pertemuan lalu urutan materi),
+    supaya siswa bisa lanjut membaca tanpa kembali ke halaman kelas."""
+    rows = (
+        db.query(Material.id, Material.judul)
+        .join(Meeting, Material.meeting_id == Meeting.id)
+        .filter(Meeting.subject_id == subject_id)
+        .order_by(Meeting.urutan, Material.id)
+        .all()
+    )
+    ids = [r.id for r in rows]
+    if current_id not in ids:
+        return {"sebelumnya": None, "berikutnya": None}
+    i = ids.index(current_id)
+
+    def brief(r) -> dict | None:
+        return {"id": r.id, "judul": r.judul} if r is not None else None
+
+    return {
+        "sebelumnya": brief(rows[i - 1]) if i > 0 else None,
+        "berikutnya": brief(rows[i + 1]) if i < len(rows) - 1 else None,
     }
 
 
@@ -169,7 +193,9 @@ def get_one_material(
     m = get_material(db, material_id)
     subject, _ = _subject_of_material(db, m)
     require_subject_view(db, user, subject)
-    return material_out(m, subject.id)
+    out = material_out(m, subject.id)
+    out["navigasi"] = _material_navigation(db, subject.id, m.id)
+    return out
 
 
 @router.patch("/api/v1/materials/{material_id}", dependencies=[Depends(require_csrf)])

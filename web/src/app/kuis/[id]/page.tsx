@@ -502,7 +502,19 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
             </div>
           ))}
           {quiz.tipe === "teks" && detail.attempt.status !== "in_progress" && (
-            <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={saveGrades}>💾 Simpan Nilai</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={saveGrades}>💾 Simpan Nilai</button>
+              {(() => {
+                const next = results.find(
+                  (r) => r.status === "submitted" && r.attempt_id !== detail.attempt.id,
+                );
+                return next ? (
+                  <button className="btn" onClick={() => openAttempt(next.attempt_id)}>
+                    Nilai Pengerjaan Berikutnya →
+                  </button>
+                ) : null;
+              })()}
+            </div>
           )}
         </div>
       )}

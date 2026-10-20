@@ -126,3 +126,41 @@ def test_dashboard_antrean_guru_dan_siswa(client):
     assert dash_s["mode"] == "siswa"
     assert dash_s["kelas"][0]["nama"] == "IPA"
     assert dash_s["kelas"][0]["kuis_dikerjakan"] == 1
+
+
+# ------------------------------------------------------- navigasi materi (audit UX 2)
+def test_navigasi_materi_sebelum_sesudah(client):
+    """GET materi menyertakan navigasi sebelumnya/berikutnya mengikuti urutan
+    pertemuan lalu urutan materi — lintas pertemuan."""
+    from tests.test_fase2 import VALID_MATERIAL, buat_kelas, buat_pertemuan
+
+    make_user("gnav", "guru")
+    csrf = login(client, "gnav")
+    sid = buat_kelas(client, csrf, "Kelas Navigasi")
+    p1 = buat_pertemuan(client, csrf, sid, "Pertemuan 1")
+    p2 = buat_pertemuan(client, csrf, sid, "Pertemuan 2")
+
+    def materi(meeting_id, judul):
+        r = client.post(
+            f"/api/v1/meetings/{meeting_id}/materials",
+            json={"judul": judul, "teks_mentah": VALID_MATERIAL},
+            headers={"x-csrf-token": csrf},
+        )
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    m1 = materi(p1["id"], "Materi A")
+    m2 = materi(p1["id"], "Materi B")
+    m3 = materi(p2["id"], "Materi C")
+
+    nav1 = client.get(f"/api/v1/materials/{m1}").json()["navigasi"]
+    assert nav1["sebelumnya"] is None
+    assert nav1["berikutnya"]["id"] == m2
+
+    nav2 = client.get(f"/api/v1/materials/{m2}").json()["navigasi"]
+    assert nav2["sebelumnya"]["id"] == m1
+    assert nav2["berikutnya"]["id"] == m3  # menyeberang ke pertemuan berikutnya
+
+    nav3 = client.get(f"/api/v1/materials/{m3}").json()["navigasi"]
+    assert nav3["sebelumnya"]["id"] == m2
+    assert nav3["berikutnya"] is None

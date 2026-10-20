@@ -21,6 +21,10 @@ interface Material {
   rendered_html: string | null;
   dibuat_oleh: number;
   files: MaterialFile[];
+  navigasi?: {
+    sebelumnya: { id: number; judul: string } | null;
+    berikutnya: { id: number; judul: string } | null;
+  } | null;
 }
 
 function formatSize(n: number | null): string {
@@ -198,6 +202,32 @@ export default function MateriPage() {
             )}
           </div>
           <SubmissionPanel materialId={material.id} user={user} kelola={!!kelola} />
+          {material.navigasi && (material.navigasi.sebelumnya || material.navigasi.berikutnya) && (
+            <nav
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                marginTop: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              {material.navigasi.sebelumnya ? (
+                <Link className="btn" href={`/materi/${material.navigasi.sebelumnya.id}`}>
+                  ← Sebelumnya: {material.navigasi.sebelumnya.judul}
+                </Link>
+              ) : (
+                <span />
+              )}
+              {material.navigasi.berikutnya ? (
+                <Link className="btn btn-primary" href={`/materi/${material.navigasi.berikutnya.id}`}>
+                  Berikutnya: {material.navigasi.berikutnya.judul} →
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
+          )}
         </>
       )}
     </main>

@@ -126,7 +126,7 @@ export default function DashboardPage() {
                 <Link className="btn btn-sm" href={`/kelas/${k.id}`}>Buka →</Link>
               </div>
               <div style={{ background: "var(--border)", borderRadius: 8, height: 10, margin: "6px 0" }}>
-                <div style={{ width: `${k.persen_total}%`, background: "var(--violet)", height: "100%", borderRadius: 8 }} />
+                <div style={{ width: `${k.persen_total}%`, background: "var(--primary)", height: "100%", borderRadius: 8 }} />
               </div>
               <p className="muted">Progress {k.persen_total}% · materi {k.materi_dibaca}/{k.total_materi} · kuis {k.kuis_dikerjakan}/{k.total_kuis}{k.rata_skor !== null ? ` · rata-rata ${k.rata_skor}` : ""}</p>
             </div>
@@ -143,15 +143,6 @@ export default function DashboardPage() {
             </p>
           ))}
           {(!dash || dash.aktivitas.length === 0) && <p className="muted" style={{ marginTop: 6 }}>Belum ada aktivitas.</p>}
-          <h3 style={{ marginTop: 16 }}>🚀 Jalan Pintas</h3>
-          <p style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <Link className="btn btn-sm" href="/kelas">🏫 Kelas</Link>
-            {staff && <Link className="btn btn-sm" href="/siswa">👩‍🎓 Siswa</Link>}
-            {staff && <Link className="btn btn-sm" href="/bank">📚 Bank</Link>}
-            {staff && <Link className="btn btn-sm" href="/generate">✨ Generate AI</Link>}
-            {user.role === "admin" && <Link className="btn btn-sm" href="/admin/users">🧑‍🏫 Kelola User</Link>}
-            <Link className="btn btn-sm" href="/notifikasi">🔔 Notifikasi{dash && dash.notifikasi_belum_dibaca > 0 ? ` (${dash.notifikasi_belum_dibaca})` : ""}</Link>
-          </p>
         </div>
       </div>
 
@@ -168,10 +159,6 @@ export default function DashboardPage() {
             <p className="muted">Komposisi modul TCML untuk mengarahkan generate AI & berbagi antar guru.</p>
           </Link>
         )}
-        <Link href="/ganti-password" className="card">
-          <h3>🔑 Ganti Password</h3>
-          <p className="muted">Perbarui password akun Anda.</p>
-        </Link>
       </div>
     </main>
   );

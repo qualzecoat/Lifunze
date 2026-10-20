@@ -24,6 +24,7 @@ export default function SiswaPage() {
   const [importResult, setImportResult] = useState<{ berhasil: number; gagal: { baris: number; username: string; pesan: string }[] } | null>(null);
   const [subjects, setSubjects] = useState<{ id: number; nama: string }[]>([]);
   const [importKelas, setImportKelas] = useState("");
+  const [cari, setCari] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -47,6 +48,15 @@ export default function SiswaPage() {
   }, [router, load]);
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
+
+  const kata = cari.trim().toLowerCase();
+  const studentsTampil = kata
+    ? students.filter(
+        (s) =>
+          s.username.toLowerCase().includes(kata) ||
+          (s.nama_lengkap ?? "").toLowerCase().includes(kata),
+      )
+    : students;
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -154,12 +164,22 @@ export default function SiswaPage() {
       </div>
 
       <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0 }}>Daftar Siswa ({studentsTampil.length}{cari ? ` dari ${students.length}` : ""})</h3>
+          <input
+            className="input"
+            style={{ maxWidth: 300 }}
+            placeholder="🔍 Cari nama atau username..."
+            value={cari}
+            onChange={(e) => setCari(e.target.value)}
+          />
+        </div>
         <table className="table">
           <thead>
             <tr><th>Username</th><th>Nama</th><th>Status</th><th>Dibuat Oleh</th><th>Aksi</th></tr>
           </thead>
           <tbody>
-            {students.map((s) => (
+            {studentsTampil.map((s) => (
               <tr key={s.id}>
                 <td><strong>{s.username}</strong></td>
                 <td>{s.nama_lengkap ?? "-"}</td>
@@ -175,6 +195,9 @@ export default function SiswaPage() {
             ))}
             {students.length === 0 && (
               <tr><td colSpan={5} className="muted">Belum ada siswa.</td></tr>
+            )}
+            {students.length > 0 && studentsTampil.length === 0 && (
+              <tr><td colSpan={5} className="muted">Tidak ada siswa yang cocok dengan pencarian "{cari}".</td></tr>
             )}
           </tbody>
         </table>

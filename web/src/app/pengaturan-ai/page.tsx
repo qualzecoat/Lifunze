@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import { apiFetch, getMe, type User } from "@/lib/api";
+import TabsBar from "@/components/TabsBar";
 
 interface Setting {
   id: number;
@@ -25,6 +26,8 @@ export default function PengaturanAiPage() {
   const [formModels, setFormModels] = useState<string[]>([]);
   const [itemModels, setItemModels] = useState<Record<number, string[]>>({});
   const [itemModelSel, setItemModelSel] = useState<Record<number, string>>({});
+  type TabKey = "koneksi" | "baru";
+  const [tab, setTab] = useState<TabKey>("koneksi");
 
   const load = useCallback(async () => {
     try {
@@ -40,12 +43,21 @@ export default function PengaturanAiPage() {
       else if (u.role === "siswa") router.push("/dashboard");
       else {
         setUser(u);
+        const awal = new URLSearchParams(window.location.search).get("tab");
+        if (awal && ["koneksi", "baru"].includes(awal)) setTab(awal as TabKey);
         load();
       }
     });
   }, [router, load]);
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
+
+  function gantiTab(k: TabKey) {
+    setTab(k);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", k);
+    window.history.replaceState(null, "", url.toString());
+  }
 
   async function fetchFormModels() {
     setError("");
@@ -79,6 +91,7 @@ export default function PengaturanAiPage() {
       setForm({ nama: "", base_url: "", api_key: "", model: "" });
       setFormModels([]);
       load();
+      gantiTab("koneksi");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan koneksi.");
     }
@@ -153,6 +166,16 @@ export default function PengaturanAiPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {ok && <div className="alert alert-ok">{ok}</div>}
 
+      <TabsBar
+        active={tab}
+        onChange={(k) => gantiTab(k as TabKey)}
+        tabs={[
+          { key: "koneksi", label: `🔌 Koneksi Saya (${settings.length})` },
+          { key: "baru", label: "➕ Koneksi Baru" },
+        ]}
+      />
+
+      <div style={{ display: tab === "baru" ? undefined : "none" }}>
       <form className="card" onSubmit={onCreate} style={{ marginBottom: 16 }}>
         <h3>➕ Koneksi Baru</h3>
         <label className="label">Nama koneksi</label>
@@ -178,7 +201,9 @@ export default function PengaturanAiPage() {
         </div>
         <button className="btn btn-primary" type="submit" style={{ marginTop: 16 }}>Simpan Koneksi</button>
       </form>
+      </div>
 
+      <div style={{ display: tab === "koneksi" ? undefined : "none" }}>
       <div style={{ display: "grid", gap: 12 }}>
         {settings.map((s) => (
           <div className="card" key={s.id}>
@@ -220,7 +245,8 @@ export default function PengaturanAiPage() {
             </div>
           </div>
         ))}
-        {settings.length === 0 && <p className="muted">Belum ada koneksi AI. Tambahkan lewat formulir di atas.</p>}
+        {settings.length === 0 && <p className="muted">Belum ada koneksi AI. Tambahkan lewat tab Koneksi Baru.</p>}
+      </div>
       </div>
     </main>
   );

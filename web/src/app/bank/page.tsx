@@ -58,6 +58,8 @@ export default function BankPage() {
   const [exploreQuizzes, setExploreQuizzes] = useState<ExploreQuiz[]>([]);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [extractFor, setExtractFor] = useState<number | null>(null);
+  const [cariSoal, setCariSoal] = useState("");
+  const [filterKatSoal, setFilterKatSoal] = useState("");
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -117,6 +119,17 @@ export default function BankPage() {
     setOk(teks);
     setOkJump(jump ?? null);
   }
+
+  const kataSoal = cariSoal.trim().toLowerCase();
+  const questionsTampil = questions.filter((q) => {
+    if (filterKatSoal === "tanpa") {
+      if (q.kategori_id !== null) return false;
+    } else if (filterKatSoal) {
+      if (q.kategori_id !== Number(filterKatSoal)) return false;
+    }
+    if (kataSoal && !q.pertanyaan.toLowerCase().includes(kataSoal)) return false;
+    return true;
+  });
 
   const catName = (id: number | null) => categories.find((c) => c.id === id)?.nama ?? "-";
 
@@ -416,7 +429,28 @@ export default function BankPage() {
           Soal lepas per butir. Susun kuis acak dari bank ini lewat tombol “Susun dari Bank Soal” di halaman kelas,
           atau ekstrak soal dari kuis yang sudah ada (halaman kuis → Ekstrak Soal).
         </p>
-        {questions.map((q) => (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input
+            className="input"
+            style={{ maxWidth: 320 }}
+            placeholder="🔍 Cari teks pertanyaan..."
+            value={cariSoal}
+            onChange={(e) => setCariSoal(e.target.value)}
+          />
+          <select className="select" style={{ maxWidth: 240 }} value={filterKatSoal} onChange={(e) => setFilterKatSoal(e.target.value)}>
+            <option value="">Semua kategori</option>
+            <option value="tanpa">— tanpa kategori —</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.nama}</option>
+            ))}
+          </select>
+          {(cariSoal || filterKatSoal) && (
+            <span className="muted" style={{ alignSelf: "center" }}>
+              Menampilkan {questionsTampil.length} dari {questions.length} soal
+            </span>
+          )}
+        </div>
+        {questionsTampil.map((q) => (
           <div key={q.id} style={{ padding: "7px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div>
               <strong>{q.pertanyaan}</strong>{" "}
@@ -449,6 +483,9 @@ export default function BankPage() {
           </div>
         ))}
         {questions.length === 0 && <p className="muted">Belum ada soal di bank soal.</p>}
+        {questions.length > 0 && questionsTampil.length === 0 && (
+          <p className="muted">Tidak ada soal yang cocok dengan filter.</p>
+        )}
 
         <form onSubmit={addQuestion} style={{ marginTop: 14 }}>
           <h4>Tambah soal baru</h4>
