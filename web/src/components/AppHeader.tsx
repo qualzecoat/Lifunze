@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Logo from "./Logo";
 import { apiFetch, logout, type User } from "@/lib/api";
 
 export default function AppHeader({ user }: { user: User }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
@@ -20,40 +21,56 @@ export default function AppHeader({ user }: { user: User }) {
     await logout();
     router.push("/login");
   }
+
+  const staff = user.role === "guru" || user.role === "admin";
+  const items: { href: string; label: string; show: boolean }[] = [
+    { href: "/dashboard", label: "🏠 Dashboard", show: true },
+    { href: "/kelas", label: "🏫 Kelas", show: true },
+    { href: "/siswa", label: "👩‍🎓 Kelola Siswa", show: staff },
+    { href: "/admin/users", label: "🧑‍🏫 Kelola User", show: user.role === "admin" },
+    { href: "/bank", label: "📚 Bank", show: staff },
+    { href: "/paket", label: "🧩 Paket Parser", show: staff },
+    { href: "/generate", label: "✨ Generate AI", show: staff },
+    { href: "/pengaturan-ai", label: "🤖 Pengaturan AI", show: staff },
+    { href: "/ganti-password", label: "🔑 Ganti Password", show: true },
+  ];
+  const isActive = (href: string) =>
+    href === "/dashboard" ? pathname === "/dashboard" : pathname === href || pathname.startsWith(href + "/");
+  const nama = user.nama_lengkap ?? user.username;
+
   return (
-    <header
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 16,
-        padding: "14px 0 18px",
-        flexWrap: "wrap",
-      }}
-    >
-      <Link href="/dashboard">
-        <Logo size={32} />
-      </Link>
-      <nav style={{ display: "flex", gap: 16, alignItems: "center", fontSize: ".92rem", flexWrap: "wrap" }}>
-        <Link href="/dashboard">Dashboard</Link>
-        <Link href="/kelas">Kelas</Link>
-        {(user.role === "guru" || user.role === "admin") && <Link href="/siswa">Kelola Siswa</Link>}
-        {user.role === "admin" && <Link href="/admin/users">Kelola User</Link>}
-        {(user.role === "guru" || user.role === "admin") && <Link href="/bank">Bank</Link>}
-        {(user.role === "guru" || user.role === "admin") && <Link href="/paket">Paket Parser</Link>}
-        {(user.role === "guru" || user.role === "admin") && <Link href="/generate">✨ Generate AI</Link>}
-        {(user.role === "guru" || user.role === "admin") && <Link href="/pengaturan-ai">Pengaturan AI</Link>}
-        <Link href="/ganti-password">Ganti Password</Link>
-        <Link href="/notifikasi" title="Notifikasi">
-          🔔{unread > 0 && <span className="badge" style={{ marginLeft: 4 }}>{unread}</span>}
+    <header className="appbar">
+      <div className="appbar-inner">
+        <Link href="/dashboard" className="appbar-logo" aria-label="Lifunze — ke Dashboard">
+          <Logo size={34} />
         </Link>
-        <span className="muted">
-          {user.nama_lengkap ?? user.username} · <span className="badge">{user.role}</span>
-        </span>
-        <button className="btn btn-sm" onClick={onLogout}>
-          Keluar
-        </button>
-      </nav>
+        <nav className="appnav">
+          {items
+            .filter((i) => i.show)
+            .map((i) => (
+              <Link key={i.href} href={i.href} className={isActive(i.href) ? "active" : undefined}>
+                {i.label}
+              </Link>
+            ))}
+        </nav>
+        <div className="appbar-user">
+          <Link href="/notifikasi" className="bell-btn" title="Notifikasi" aria-label="Notifikasi">
+            🔔
+            {unread > 0 && <span className="bell-badge">{unread}</span>}
+          </Link>
+          <div className="userchip">
+            <span className="avatar-circle">{nama.charAt(0).toUpperCase()}</span>
+            <span>
+              <span className="uname">{nama}</span>
+              <br />
+              <span className="badge">{user.role}</span>
+            </span>
+          </div>
+          <button className="btn btn-sm" onClick={onLogout}>
+            Keluar
+          </button>
+        </div>
+      </div>
     </header>
   );
 }

@@ -22,6 +22,14 @@ body {
   background: var(--bg);
   color: var(--ink);
   line-height: 1.6;
+  overflow-x: clip;
+}
+
+/* Layar lebar: skala keseluruhan sedikit lebih besar agar tidak terasa kecil. */
+@media (min-width: 1400px) {
+  html {
+    font-size: 17.5px;
+  }
 }
 
 h1,
@@ -36,9 +44,137 @@ a {
 }
 
 .page {
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 24px 20px 64px;
+}
+
+/* ===== Header aplikasi (bar atas) ===== */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-top: -24px;
+  margin-bottom: 22px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(23, 20, 43, 0.05);
+}
+.appbar-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.appbar-logo {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.appnav {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.appnav a {
+  padding: 7px 13px;
+  border-radius: 99px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.appnav a:hover {
+  background: #efebfd;
+  color: var(--primary-dark);
+}
+.appnav a.active {
+  background: var(--primary);
+  color: #fff;
+}
+.appbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.bell-btn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+}
+.bell-btn .bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  min-width: 19px;
+  height: 19px;
+  border-radius: 99px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+.userchip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.avatar-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  flex: none;
+}
+.userchip .uname {
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+@media (max-width: 900px) {
+  .appnav {
+    order: 3;
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .appnav::-webkit-scrollbar {
+    display: none;
+  }
+  .appbar-user {
+    margin-left: auto;
+  }
+  .userchip .uname {
+    display: none;
+  }
 }
 
 .card {
@@ -282,6 +418,12 @@ a {
 
 /* Scratch (Fase 7) */
 .tc-scratch { margin: 14px 0; text-align: center; }
+/* Artikel materi: batasi lebar baris agar tetap nyaman dibaca di layar lebar. */
+.tcml {
+  max-width: 920px;
+  margin-inline: auto;
+}
+
 .tc-scratch iframe { max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: #000; }
 .tc-scratch-caption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
 .tc-sprite { background: #FFF7E0; border: 1px solid #F2D98C; border-left: 5px solid var(--amber); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
