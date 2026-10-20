@@ -1,0 +1,51 @@
+# Lifunze — Docker Compose
+# Pola deploy mengikuti Rephore & SpellWar di VPS Sirius:
+# container hanya di jaringan internal; publik lewat sirius-caddy (reverse proxy).
+# Untuk dev lokal, port di-bind ke 127.0.0.1 saja (jangan dipublish ke publik).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: lifunze-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lifunze}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lifunze}
+      POSTGRES_DB: ${POSTGRES_DB:-lifunze}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-lifunze}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [lifunze-net]
+
+  api:
+    build: ./api
+    container_name: lifunze-api
+    environment:
+      LIFUNZE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lifunze}:${POSTGRES_PASSWORD:-lifunze}@db:5432/${POSTGRES_DB:-lifunze}
+      LIFUNZE_SECRET_KEY: ${LIFUNZE_SECRET_KEY}
+      LIFUNZE_FERNET_KEY: ${LIFUNZE_FERNET_KEY}
+      LIFUNZE_ADMIN_USERNAME: ${LIFUNZE_ADMIN_USERNAME}
+      LIFUNZE_ADMIN_PASSWORD: ${LIFUNZE_ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [lifunze-net]
+
+  web:
+    build: ./web
+    container_name: lifunze-web
+    depends_on: [api]
+    networks: [lifunze-net]
+
+  # Slot masa depan — Fase 9 (Kelas Live Scratch):
+  #   live: service WebSocket Node (room, lock, relay project Scratch)
+  # Routing publik diatur di Caddy (lifunze.aditiamh.my.id -> web, /api/* -> api).
+
+volumes:
+  pgdata:
+
+networks:
+  lifunze-net:

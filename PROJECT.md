@@ -25,7 +25,9 @@ Lifunze adalah **penerus/penulisan ulang** dari proyek v1 **Tenebris-Class** (Fl
 
 ## 2. Status Terkini
 
-- **2026-10-20:** Blueprint arsitektur v2 selesai & semua keputusan utama terkunci (lihat Bagian 3). **Belum ada kode — fase pembangunan belum dimulai atas instruksi Qualze.**
+- **2026-10-20:** Blueprint arsitektur v2 selesai & semua keputusan utama terkunci (lihat Bagian 3).
+- **2026-10-20: FASE 0 — FONDASI SELESAI** ✅ — monorepo `web/` (Next.js) + `api/` (FastAPI), Docker Compose (web/api/db PostgreSQL 16), skema database lengkap **27 tabel** + migrasi Alembic awal, engine TCML modular hasil porting v1 (`api/app/tcml/`), endpoint parse (`POST /api/v1/parse/content`). Verifikasi: test parser v1 **8/8 hijau** sebagai baseline regresi, total pytest **12/12**, migrasi upgrade/downgrade bersih, `next build` sukses (standalone).
+- Langkah berikutnya: **Fase 1 — Akun, RBAC & Pengaturan AI** (auth 1 portal, provisioning + `created_by`, seed admin, enkripsi API key). Menunggu instruksi Qualze.
 - **2026-10-20:** Repo GitHub `qualzecoat/Lifunze` dibuat oleh Qualze; commit pertama di-push Muse (README, PROJECT.md, blueprint, contoh branding).
 - **Branding TERKUNCI (2026-10-20):** makna nama: **"Learning is Fun, Zero Effort"** — tempat belajar & mengajar yang seru dan mudah berkat bantuan teknologi. Tagline final: **"Serunya Belajar, Mudahnya Mengajar."** Warna: **Violet (Tema A)**. Logo & sample website final-terpilih ada di `docs/branding/` (logo-a = terpilih).
 
@@ -82,3 +84,4 @@ Detail lengkap: `docs/blueprint-v2.md`.
 - **2026-10-20** — File dibuat. Repo Lifunze disiapkan (README, PROJECT.md, blueprint). Status: blueprint terkunci, menunggu penentuan branding, belum mulai Fase 0.
 - **2026-10-20** — Aturan berbagi paket diubah: paket parser bisa dibagikan sesama guru (bukan hanya admin). Contoh branding dibuat (3 logo SVG + sample website di `docs/branding/`) dan di-push sebagai commit pertama repo.
 - **2026-10-20** — Branding dikunci Qualze: tagline "Serunya Belajar, Mudahnya Mengajar." + warna Violet (Tema A); sample website diperbarui ke tagline final. Analisis fitur Kelas Live Scratch selesai (`docs/kelas-live-scratch.md`) → diparkir sebagai Fase 9, hook dicadangkan di blueprint Bagian 16.
+- **2026-10-20** — **Fase 0 selesai & di-push:** scaffold monorepo (web/api), TCML modular, model + migrasi 27 tabel, Docker Compose, endpoint parse & health. Semua verifikasi lolos (pytest 12/12, migrasi bersih, build Next.js OK). Menunggu instruksi Fase 1.

@@ -1,0 +1,28 @@
+:root {
+  --primary: #6d5df6;
+  --primary-dark: #5748d8;
+  --accent: #ffb020;
+  --ink: #17142b;
+  --muted: #5b5770;
+  --bg: #f7f6fe;
+  --surface: #ffffff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Plus Jakarta Sans", sans-serif;
+}

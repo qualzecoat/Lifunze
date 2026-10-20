@@ -1,6 +1,6 @@
 # Blueprint Arsitektur — Tenebris-Class v2
 
-> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20), siap masuk Fase 0
+> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20). **Fase 0 selesai** 2026-10-20 (lihat PROJECT.md untuk status per fase).
 > **Referensi v1:** https://github.com/jeruk125/Tenebris-Class (Flask + SQLite, monolit)
 > **Domain deploy:** `lifunze.aditiamh.my.id`
 > **Tujuan:** Membangun ulang Tenebris-Class dengan stack modern dan ruang fitur yang lebih besar, tanpa kehilangan jiwa v1: **TCML** (bahasa markup konten sendiri), **Bank Materi & Kuis**, dan konten yang bisa **digenerate AI langsung di dalam LMS**.

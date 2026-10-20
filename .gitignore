@@ -30,3 +30,7 @@ instance/
 Thumbs.db
 .vscode/
 .idea/
+
+# Build & test cache
+.next/
+.pytest_cache/
