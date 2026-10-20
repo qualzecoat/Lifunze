@@ -41,6 +41,7 @@ def meeting_out(db: Session, m: Meeting) -> dict:
     materials = (
         db.query(Material).filter(Material.meeting_id == m.id).order_by(Material.id).all()
     )
+    quizzes = db.query(Quiz).filter(Quiz.meeting_id == m.id).order_by(Quiz.id).all()
     return {
         "id": m.id,
         "subject_id": m.subject_id,
@@ -57,7 +58,16 @@ def meeting_out(db: Session, m: Meeting) -> dict:
             }
             for mt in materials
         ],
-        "jumlah_kuis": db.query(Quiz).filter(Quiz.meeting_id == m.id).count(),
+        "quizzes": [
+            {
+                "id": q.id,
+                "judul": q.judul,
+                "tipe": q.tipe,
+                "jumlah_soal": len(q.questions),
+            }
+            for q in quizzes
+        ],
+        "jumlah_kuis": len(quizzes),
     }
 
 

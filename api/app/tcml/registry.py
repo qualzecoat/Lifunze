@@ -43,12 +43,12 @@ MODULES = {
     "kuis-pg": {
         "nama": "Kuis Pilihan Ganda",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT"],
     },
     "kuis-esai": {
         "nama": "Kuis Esai",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER", "WEIGHT"],
     },
     # "scratch": modul khusus Scratch — direncanakan Fase 7 (belum ada renderer).
 }

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import settings
-from .routers import admin_users, ai_settings, auth, bank, materials, students, subjects
+from .routers import admin_users, ai_settings, auth, bank, materials, quizzes, students, subjects
 from .tcml import parse_material, parse_quiz_mcq, parse_quiz_text
 from .tcml.registry import MODULES
 
@@ -29,6 +29,7 @@ app.include_router(ai_settings.router)
 app.include_router(subjects.router)
 app.include_router(materials.router)
 app.include_router(bank.router)
+app.include_router(quizzes.router)
 
 
 class ParseKind(str, Enum):
@@ -69,3 +70,17 @@ def parse_content(req: ParseRequest):
 def list_modules():
     """Metadata modul tag TCML — fondasi menu Paket Parser (Fase 5)."""
     return MODULES
+
+
+class QuizParseRequest(BaseModel):
+    teks: str = Field(..., description="Teks mentah TCML kuis")
+    tipe: str = Field(default="pilihan_ganda", pattern="^(pilihan_ganda|teks)$")
+
+
+@app.post("/api/v1/parse/quiz")
+def parse_quiz_endpoint(req: QuizParseRequest):
+    """Parse kuis TCML v2 (bobot & multi-jawaban) untuk pratinjau editor."""
+    from .tcml.quiz import parse_quiz_v2
+
+    res = parse_quiz_v2(req.teks, expected_type=req.tipe)
+    return {"success": res["success"], "content": res["content"], "errors": res["errors"]}

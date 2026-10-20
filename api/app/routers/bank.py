@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_csrf, require_roles
 from ..models import SavedCategory, SavedMaterial, SavedQuiz, User
-from ..tcml import parse_material, parse_quiz_mcq, parse_quiz_text
+from ..tcml import parse_material
+from ..tcml.quiz import parse_quiz_v2
 
 router = APIRouter(prefix="/api/v1/bank", tags=["bank"])
 staff = require_roles("guru", "admin")
@@ -191,8 +192,8 @@ def list_saved_quizzes(user: User = Depends(staff), db: Session = Depends(get_db
 
 @router.post("/quizzes", status_code=201, dependencies=[Depends(require_csrf)])
 def create_saved_quiz(body: SavedQuizIn, user: User = Depends(staff), db: Session = Depends(get_db)):
-    parse = parse_quiz_mcq if body.tipe == "pilihan_ganda" else parse_quiz_text
-    res = parse(body.teks_mentah)
+    # Validasi & snapshot memakai parser kuis v2 (mendukung [WEIGHT] & multi-jawaban).
+    res = parse_quiz_v2(body.teks_mentah, expected_type=body.tipe)
     if not res["success"]:
         raise HTTPException(status_code=400, detail={"pesan": "Teks TCML kuis tidak valid.", "errors": res["errors"]})
     _validate_category(db, user, body.kategori_id)
@@ -200,7 +201,7 @@ def create_saved_quiz(body: SavedQuizIn, user: User = Depends(staff), db: Sessio
         judul=body.judul.strip(),
         tipe=body.tipe,
         teks_mentah=body.teks_mentah,
-        snapshot=res["content"],
+        snapshot=res["content"]["questions"],
         dibuat_oleh=user.id,
         kategori_id=body.kategori_id,
     )

@@ -11,6 +11,12 @@ interface MaterialBrief {
   judul: string;
   jumlah_file: number;
 }
+interface QuizBrief {
+  id: number;
+  judul: string;
+  tipe: string;
+  jumlah_soal: number;
+}
 interface Meeting {
   id: number;
   judul: string;
@@ -18,6 +24,7 @@ interface Meeting {
   tanggal: string | null;
   deskripsi: string | null;
   materials: MaterialBrief[];
+  quizzes: QuizBrief[];
   jumlah_kuis: number;
 }
 interface SubjectDetail {
@@ -39,6 +46,12 @@ interface SavedMaterial {
   judul: string;
   kategori_id: number | null;
 }
+interface SavedQuiz {
+  id: number;
+  judul: string;
+  tipe: string;
+  jumlah_soal: number;
+}
 
 export default function KelasDetailPage() {
   const params = useParams<{ id: string }>();
@@ -51,6 +64,8 @@ export default function KelasDetailPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bankItems, setBankItems] = useState<SavedMaterial[]>([]);
   const [bankFor, setBankFor] = useState<number | null>(null);
+  const [bankQuizzes, setBankQuizzes] = useState<SavedQuiz[]>([]);
+  const [bankQuizFor, setBankQuizFor] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [newMeeting, setNewMeeting] = useState({ judul: "", tanggal: "", deskripsi: "" });
@@ -156,6 +171,30 @@ export default function KelasDetailPage() {
     }
   }
 
+  async function openBankQuiz(meetingId: number) {
+    if (bankQuizFor === meetingId) {
+      setBankQuizFor(null);
+      return;
+    }
+    try {
+      setBankQuizzes(await apiFetch<SavedQuiz[]>("/api/v1/bank/quizzes"));
+      setBankQuizFor(meetingId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memuat bank kuis.");
+    }
+  }
+
+  async function useBankQuiz(meetingId: number, savedId: number) {
+    try {
+      await apiFetch(`/api/v1/meetings/${meetingId}/quizzes/from-bank/${savedId}`, { method: "POST" });
+      setOk("Kuis dari bank ditambahkan (pengaturan default — atur waktu/durasi lewat Edit).");
+      setBankQuizFor(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memakai kuis bank.");
+    }
+  }
+
   async function loadCandidates() {
     try {
       const all = await apiFetch<Member[]>("/api/v1/users/students");
@@ -252,13 +291,22 @@ export default function KelasDetailPage() {
               </div>
             ))}
             {m.materials.length === 0 && <p className="muted">Belum ada materi.</p>}
-            {m.jumlah_kuis > 0 && <p className="muted" style={{ marginTop: 6 }}>🧪 {m.jumlah_kuis} kuis</p>}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            {m.quizzes.map((q) => (
+              <div key={q.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                <Link href={`/kuis/${q.id}`}>🧪 {q.judul}</Link>
+                <span className="muted">{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"} · {q.jumlah_soal} soal</span>
+              </div>
+            ))}
           </div>
           {kelola && (
             <div style={{ marginTop: 12 }}>
               <div className="row-actions">
                 <Link className="btn btn-sm btn-primary" href={`/editor/materi?meeting=${m.id}&kelas=${sid}`}>➕ Materi Baru</Link>
                 <button className="btn btn-sm" onClick={() => openBank(m.id)}>📚 Ambil dari Bank</button>
+                <Link className="btn btn-sm btn-primary" href={`/editor/kuis?meeting=${m.id}&kelas=${sid}`}>➕ Kuis Baru</Link>
+                <button className="btn btn-sm" onClick={() => openBankQuiz(m.id)}>🧪 Kuis dari Bank</button>
               </div>
               {bankFor === m.id && (
                 <div style={{ marginTop: 10 }}>
@@ -267,6 +315,17 @@ export default function KelasDetailPage() {
                     <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
                       <span>{b.judul}</span>
                       <button className="btn btn-sm" onClick={() => useBank(m.id, b.id)}>Pakai</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {bankQuizFor === m.id && (
+                <div style={{ marginTop: 10 }}>
+                  {bankQuizzes.length === 0 && <p className="muted">Bank kuis Anda kosong.</p>}
+                  {bankQuizzes.map((b) => (
+                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
+                      <span>🧪 {b.judul} <span className="muted">({b.jumlah_soal} soal)</span></span>
+                      <button className="btn btn-sm" onClick={() => useBankQuiz(m.id, b.id)}>Pakai</button>
                     </div>
                   ))}
                 </div>
