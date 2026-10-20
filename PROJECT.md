@@ -27,7 +27,7 @@ Lifunze adalah **penerus/penulisan ulang** dari proyek v1 **Tenebris-Class** (Fl
 
 - **2026-10-20:** Blueprint arsitektur v2 selesai & semua keputusan utama terkunci (lihat Bagian 3). **Belum ada kode — fase pembangunan belum dimulai atas instruksi Qualze.**
 - **2026-10-20:** Repo GitHub `qualzecoat/Lifunze` dibuat oleh Qualze; commit pertama di-push Muse (README, PROJECT.md, blueprint, contoh branding).
-- **Branding (sedang ditentukan):** makna nama disepakati Qualze: **"Learning is Fun, Zero Effort"** — tempat belajar & mengajar yang seru dan mudah berkat bantuan teknologi. Contoh logo 3 palet (A Violet / B Teal / C Biru) + sample website ada di `docs/branding/`. Usulan tagline utama Muse: **"Belajar Makin Seru, Mengajar Makin Mudah."** Menunggu pilihan arah warna & tagline final dari Qualze.
+- **Branding TERKUNCI (2026-10-20):** makna nama: **"Learning is Fun, Zero Effort"** — tempat belajar & mengajar yang seru dan mudah berkat bantuan teknologi. Tagline final: **"Serunya Belajar, Mudahnya Mengajar."** Warna: **Violet (Tema A)**. Logo & sample website final-terpilih ada di `docs/branding/` (logo-a = terpilih).
 
 ## 3. Keputusan Terkunci
 
@@ -43,6 +43,8 @@ Lifunze adalah **penerus/penulisan ulang** dari proyek v1 **Tenebris-Class** (Fl
 | 2026-10-20 | Parser TCML dimodularisasi: **inti parser + modul tag + Paket Parser**. Hanya potongan spesifikasi milik paket terpilih yang dikirim ke AI. Paket bisa **diekspor jadi file .md** untuk dipakai di LLM eksternal; hasil LLM eksternal diimpor kembali lewat validator yang sama |
 | 2026-10-20 | **Paket parser bisa dibagikan sesama guru** (ke guru tertentu atau semua guru), bukan hanya oleh admin. Penerima bisa memakai & menyalin (fork); hanya pemilik yang bisa mengedit/menghapus |
 | 2026-10-20 | Hasil generate AI boleh **multi-dokumen (bundle)**: satu jawaban AI bisa berisi materi + latihan + kuis sekaligus; sistem memecah per root block, memvalidasi dua lapis (sintaks + skema paket), dan merutekan jadi draf sesuai jenisnya |
+| 2026-10-20 | **Branding FINAL:** tagline **"Serunya Belajar, Mudahnya Mengajar."**; warna utama **Violet (Tema A)** — primer `#6D5DF6`, aksen amber `#FFB020`, tinta `#17142B`; font Plus Jakarta Sans (judul) + Inter (isi) |
+| 2026-10-20 | Fitur **Kelas Live Scratch** (fork TurboWarp + WebSocket lock-based, dari rencana platform kursus coding 2026-10-09) **DIPARKIR sebagai Fase 9 masa depan** — tidak dikerjakan sekarang. Blueprint dicadangkan hook arsitekturnya (Bagian 16); analisis lengkap di `docs/kelas-live-scratch.md` |
 
 ## 4. Arsitektur Ringkas
 
@@ -79,3 +81,4 @@ Detail lengkap: `docs/blueprint-v2.md`.
 
 - **2026-10-20** — File dibuat. Repo Lifunze disiapkan (README, PROJECT.md, blueprint). Status: blueprint terkunci, menunggu penentuan branding, belum mulai Fase 0.
 - **2026-10-20** — Aturan berbagi paket diubah: paket parser bisa dibagikan sesama guru (bukan hanya admin). Contoh branding dibuat (3 logo SVG + sample website di `docs/branding/`) dan di-push sebagai commit pertama repo.
+- **2026-10-20** — Branding dikunci Qualze: tagline "Serunya Belajar, Mudahnya Mengajar." + warna Violet (Tema A); sample website diperbarui ke tagline final. Analisis fitur Kelas Live Scratch selesai (`docs/kelas-live-scratch.md`) → diparkir sebagai Fase 9, hook dicadangkan di blueprint Bagian 16.

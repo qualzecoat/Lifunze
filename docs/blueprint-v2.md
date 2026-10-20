@@ -530,6 +530,7 @@ Seluruh usulan berikut **disetujui Qualze 2026-10-20** dan sudah didistribusikan
 | **6 — Pengalaman belajar** | **Progress belajar** (fitur 2), **pengumuman mapel** (fitur 3), **notifikasi in-app** (fitur 4), **tugas file `[PROJECT]` + penilaian rubrik** (fitur 8), **mode hemat kuota** (fitur 10) | LMS terasa "besar" |
 | **7 — Paket khusus** | Modul tag **Scratch** (renderer blok/sprite/stage + spesifikasi + contoh) + paket Scratch; pendalaman paket Mapel Umum | Parser tidak lagi bias pemrograman |
 | **8 — Hardening & go-live** | Rate limiting, validasi magic bytes, review keamanan, backup terjadwal, deploy ke **lifunze.aditiamh.my.id**, data mulai bersih | v2 live |
+| **9 — Masa depan (belum dijadwalkan)** | **Kelas Live Scratch**: fork editor TurboWarp (repo publik terpisah, GPL-3.0) + service WebSocket lock-based "gantian pegang kendali" + room per pertemuan + SSO dari Lifunze. Hanya diaktifkan atas keputusan eksplisit Qualze. Analisis: `docs/kelas-live-scratch.md` | Ruang praktik live Scratch |
 
 ---
 
@@ -546,7 +547,29 @@ Seluruh usulan berikut **disetujui Qualze 2026-10-20** dan sudah didistribusikan
 | 7 | Generate AI di LMS dengan pengaturan per akun (base URL, API key, fetch model, model) | ✅ Disetujui 2026-10-20 |
 | 8 | Parser dimodularisasi; Paket Parser sebagai unit yang dikirim ke AI & bisa diekspor .md | ✅ Disetujui 2026-10-20 |
 | 9 | Paket parser dapat dibagikan sesama guru (bukan hanya admin); penerima bisa memakai & fork | ✅ Terkunci 2026-10-20 |
+| 10 | Branding final: tagline "Serunya Belajar, Mudahnya Mengajar." + warna Violet (Tema A) | ✅ Terkunci 2026-10-20 |
+| 11 | Kelas Live Scratch diparkir sebagai Fase 9 masa depan; hook arsitektur dicadangkan (Bagian 16) | ✅ Terkunci 2026-10-20 |
 
 ---
 
-*Dokumen hidup — diperbarui setiap ada keputusan baru. Terakhir diperbarui 2026-10-20 (blueprint v2).*
+## 16. Cadangan Masa Depan: Kelas Live Scratch (Fase 9 — belum dijadwalkan)
+
+> Fitur dari rencana platform kursus coding anak (2026-10-09): room kelas live tempat tiap siswa punya project Scratch sendiri, guru bisa melihat semua dan **mengambil alih kendali** project siswa (lock-based "gantian pegang kendali", sync `vm.toJSON()` via WebSocket, penonton read-only, audio tetap via Meet). **Tidak dikerjakan di Fase 0–8.** Analisis lengkap: `docs/kelas-live-scratch.md`.
+
+Dua penyesuaian besar yang sudah disepakati arahnya:
+
+1. **Editor = layanan pendamping terpisah, bukan modul Lifunze.** Fork TurboWarp (GPL-3.0) hidup di repo publiknya sendiri + subdomain sendiri (usul `scratch.lifunze.aditiamh.my.id`), karena menggabungkannya ke frontend Lifunze mencemari lisensi & memberatkan build.
+2. **Realtime = service WebSocket Node terpisah** (satu bahasa dengan editor), bukan di dalam FastAPI.
+
+Hook yang **dicadangkan dari sekarang** (biaya ±nol, murni disiplin desain):
+
+- Tabel live masa depan (`live_sessions`, `live_projects`) ber-FK ke `meetings.id` & `users.id` — tabel inti Lifunze **tidak perlu diubah** saat fitur ini datang; jaga desain kunci `users` & `meetings` tetap standar (integer PK).
+- Slot container `live` dicadangkan di rencana Docker Compose + jalur WebSocket di Caddy (subdomain editor).
+- Pola **token SSO sekali pakai** (berumur pendek, diterbitkan API Lifunze, divalidasi service pendamping) dicatat sebagai pola integrasi standar untuk layanan pendamping manapun.
+- Ekstensi file **`.sb3`** dicatat sebagai tipe masa depan untuk storage (project Scratch siswa).
+- Peran room diturunkan dari role + enrollment yang sudah ada: guru = host (bisa take-over), siswa = pemilik project, siswa lain = penonton.
+- Paket Parser Scratch (Fase 7) dan fitur live ini **dua hal berbeda yang saling melengkapi**: paket = konten materi/kuis Scratch; live = ruang praktiknya.
+
+---
+
+*Dokumen hidup — diperbarui setiap ada keputusan baru. Terakhir diperbarui 2026-10-20 (blueprint v2.1: branding terkunci + cadangan Kelas Live Scratch).*
