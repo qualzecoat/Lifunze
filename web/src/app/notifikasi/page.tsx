@@ -28,7 +28,7 @@ function describe(n: Notif): { teks: string; href: string | null } {
       };
     case "attempt_masuk":
       return {
-        teks: `📝 Ada attempt esai yang perlu dinilai: “${p.judul}”`,
+        teks: `📝 Ada pengerjaan esai yang perlu dinilai: “${p.judul}”`,
         href: p.quiz_id ? `/kuis/${p.quiz_id}` : null,
       };
     case "nilai_keluar":

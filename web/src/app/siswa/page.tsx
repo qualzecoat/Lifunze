@@ -22,6 +22,8 @@ export default function SiswaPage() {
   const [ok, setOk] = useState("");
   const [form, setForm] = useState({ username: "", nama_lengkap: "", password: "" });
   const [importResult, setImportResult] = useState<{ berhasil: number; gagal: { baris: number; username: string; pesan: string }[] } | null>(null);
+  const [subjects, setSubjects] = useState<{ id: number; nama: string }[]>([]);
+  const [importKelas, setImportKelas] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -39,6 +41,7 @@ export default function SiswaPage() {
       else {
         setUser(u);
         load();
+        apiFetch<{ id: number; nama: string }[]>("/api/v1/subjects").then(setSubjects).catch(() => {});
       }
     });
   }, [router, load]);
@@ -66,6 +69,7 @@ export default function SiswaPage() {
     setImportResult(null);
     const fd = new FormData();
     fd.append("file", file);
+    if (importKelas) fd.append("subject_id", importKelas);
     try {
       const res = await apiFetch<{ berhasil: number; gagal: { baris: number; username: string; pesan: string }[] }>(
         "/api/v1/users/students/import",
@@ -129,6 +133,13 @@ export default function SiswaPage() {
             Format: header <code>username,nama_lengkap,password</code>. Baris yang gagal tidak membatalkan baris lain.
           </p>
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ margin: "12px 0" }} />
+          <label className="label">Langsung daftarkan ke kelas (opsional)</label>
+          <select className="select" value={importKelas} onChange={(e) => setImportKelas(e.target.value)}>
+            <option value="">— tidak didaftarkan —</option>
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>{s.nama}</option>
+            ))}
+          </select>
           <br />
           <button className="btn" onClick={onImport}>Import</button>
           {importResult && (

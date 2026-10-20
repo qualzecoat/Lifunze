@@ -77,8 +77,18 @@ interface ResultRow {
 
 type AnyQuiz = QuizPublic & Partial<QuizFull>;
 
-export default function KuisPage() {
-  const params = useParams<{ id: string }>();
+/** U7 audit UX: label status pengerjaan dalam bahasa awam. */
+function statusLabel(status: string): string {
+  switch (status) {
+    case "in_progress": return "Sedang dikerjakan";
+    case "submitted": return "Terkumpul";
+    case "graded": return "Sudah dinilai";
+    case "expired": return "Kedaluwarsa";
+    default: return status;
+  }
+}
+
+export default function KuisPage() {  const params = useParams<{ id: string }>();
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [quiz, setQuiz] = useState<AnyQuiz | null>(null);
@@ -250,7 +260,7 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
         <div style={{ marginTop: 14 }}>
           <div className="card" style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <span>
-              Status: <strong>{attempt.attempt.status}</strong>
+              Status: <strong>{statusLabel(attempt.attempt.status)}</strong>
               {attempt.attempt.skor !== null && <> · Skor: <strong>{attempt.attempt.skor}</strong></>}
             </span>
             {remaining !== null && attempt.attempt.status === "in_progress" && (
@@ -364,7 +374,7 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
       }
       setGrades(g);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Gagal membuka attempt.");
+      setErr(e instanceof Error ? e.message : "Gagal membuka pengerjaan.");
     }
   }
 
@@ -390,7 +400,7 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
   }
 
   async function remove() {
-    if (!window.confirm(`Hapus kuis "${quiz.judul}" beserta seluruh attempt-nya?`)) return;
+    if (!window.confirm(`Hapus kuis "${quiz.judul}" beserta seluruh pengerjaannya?`)) return;
     await apiFetch(`/api/v1/quizzes/${quiz.id}`, { method: "DELETE" });
     window.history.back();
   }
@@ -445,12 +455,12 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
       <div className="card" style={{ marginTop: 12 }}>
         <h3>Hasil Siswa ({results.length})</h3>
         <table className="table" style={{ marginTop: 8 }}>
-          <thead><tr><th>Siswa</th><th>Status</th><th>Skor</th><th>Submit</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Siswa</th><th>Status</th><th>Skor</th><th>Dikumpulkan</th><th>Aksi</th></tr></thead>
           <tbody>
             {results.map((r) => (
               <tr key={r.attempt_id}>
                 <td>{r.siswa?.nama_lengkap ?? r.siswa?.username ?? "-"}</td>
-                <td>{r.status}</td>
+                <td>{statusLabel(r.status)}</td>
                 <td>{r.skor ?? "—"}</td>
                 <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString("id-ID") : "—"}</td>
                 <td><button className="btn btn-sm" onClick={() => openAttempt(r.attempt_id)}>{quiz.tipe === "teks" ? "Nilai" : "Lihat"}</button></td>
@@ -463,7 +473,7 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
 
       {detail && (
         <div className="card" style={{ marginTop: 12 }}>
-          <h3>Detail Attempt #{detail.attempt.id} — status {detail.attempt.status}, skor {detail.attempt.skor ?? "—"}</h3>
+          <h3>Detail Pengerjaan #{detail.attempt.id} — status {statusLabel(detail.attempt.status)}, skor {detail.attempt.skor ?? "—"}</h3>
           {detail.questions.map((q, i) => (
             <div key={q.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
               <p><strong>{i + 1}. {q.pertanyaan}</strong> <span className="badge">bobot {q.bobot}</span></p>

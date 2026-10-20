@@ -22,27 +22,42 @@ interface ParsedQuestion {
   jawaban_referensi: string | null;
 }
 
-const CONTOH_PG = `[QUIZ]
-[TYPE]pilihan_ganda[/TYPE]
-[QUESTION 1]
-[QUESTION]Ibu kota Indonesia adalah...[/QUESTION]
-[OPTIONS]
-A. Bandung
-B. Jakarta
-C. Surabaya
-[/OPTIONS]
-[ANSWER]B[/ANSWER]
-[/QUESTION 1]
-[/QUIZ]`;
+/** Satu kartu soal pada mode Formulir (U1 audit UX). */
+interface CardSoal {
+  pertanyaan: string;
+  opsi: string[];
+  kunci: number[]; // indeks opsi yang benar (boleh >1 = multi-benar)
+  bobot: string;
+  referensi: string;
+}
 
-const CONTOH_ESAI = `[QUIZ]
-[TYPE]essay[/TYPE]
-[QUESTION 1]
-[QUESTION]Jelaskan proses fotosintesis.[/QUESTION]
-[ANSWER]Jawaban referensi untuk pedoman penilaian guru.[/ANSWER]
-[WEIGHT]2[/WEIGHT]
-[/QUESTION 1]
-[/QUIZ]`;
+const HURUF = ["A", "B", "C", "D", "E"];
+
+function kartuKosong(): CardSoal {
+  return { pertanyaan: "", opsi: ["", "", "", ""], kunci: [0], bobot: "1", referensi: "" };
+}
+
+function kartuKeTeks(cards: CardSoal[], tipe: "pilihan_ganda" | "teks"): string {
+  const lines: string[] = ["[QUIZ]", `[TYPE]${tipe === "pilihan_ganda" ? "pilihan_ganda" : "essay"}[/TYPE]`];
+  cards.forEach((c, i) => {
+    lines.push(`[QUESTION ${i + 1}]`);
+    lines.push(`[QUESTION]${c.pertanyaan.trim()}[/QUESTION]`);
+    if (tipe === "pilihan_ganda") {
+      lines.push("[OPTIONS]");
+      c.opsi.forEach((o, j) => lines.push(`${HURUF[j]}. ${o.trim()}`));
+      lines.push("[/OPTIONS]");
+      if (c.bobot && c.bobot !== "1") lines.push(`[WEIGHT]${c.bobot}[/WEIGHT]`);
+      const kunci = [...c.kunci].sort((a, b) => a - b).map((k) => HURUF[k]).join(", ");
+      lines.push(`[ANSWER]${kunci}[/ANSWER]`);
+    } else {
+      if (c.referensi.trim()) lines.push(`[ANSWER]${c.referensi.trim()}[/ANSWER]`);
+      if (c.bobot && c.bobot !== "1") lines.push(`[WEIGHT]${c.bobot}[/WEIGHT]`);
+    }
+    lines.push(`[/QUESTION ${i + 1}]`);
+  });
+  lines.push("[/QUIZ]");
+  return lines.join("\n");
+}
 
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
@@ -62,7 +77,9 @@ function EditorKuisInner() {
   const [judul, setJudul] = useState("");
   const [tipe, setTipe] = useState<"pilihan_ganda" | "teks">("pilihan_ganda");
   const [teks, setTeks] = useState("");
-  const [subjectId, setSubjectId] = useState<string | null>(kelasParam);
+  const [mode, setMode] = useState<"form" | "tcml">("form");
+  const [cards, setCards] = useState<CardSoal[]>([kartuKosong()]);
+  const [subjectId] = useState<string | null>(kelasParam);
   const [durasi, setDurasi] = useState("");
   const [dibuka, setDibuka] = useState("");
   const [ditutup, setDitutup] = useState("");
@@ -75,6 +92,14 @@ function EditorKuisInner() {
   const [ok, setOk] = useState("");
   const [saving, setSaving] = useState(false);
 
+  async function parseTeks(value: string, t: string) {
+    const res = await apiFetch<{ success: boolean; content: { questions: ParsedQuestion[] } | null; errors: TcmlError[] }>(
+      "/api/v1/parse/quiz",
+      { method: "POST", body: { teks: value, tipe: t } },
+    );
+    return res;
+  }
+
   async function runPreview(value: string, t: string) {
     if (!value.trim()) {
       setPreview([]);
@@ -82,10 +107,7 @@ function EditorKuisInner() {
       return;
     }
     try {
-      const res = await apiFetch<{ success: boolean; content: { questions: ParsedQuestion[] } | null; errors: TcmlError[] }>(
-        "/api/v1/parse/quiz",
-        { method: "POST", body: { teks: value, tipe: t } },
-      );
+      const res = await parseTeks(value, t);
       if (res.success && res.content) {
         setPreview(res.content.questions);
         setErrors([]);
@@ -94,6 +116,54 @@ function EditorKuisInner() {
         setErrors(res.errors ?? []);
       }
     } catch { /* abaikan */ }
+  }
+
+  /** Sinkronkan kartu -> teks TCML + pratinjau. */
+  function sinkronDariKartu(next: CardSoal[], t: "pilihan_ganda" | "teks" = tipe) {
+    setCards(next);
+    const built = kartuKeTeks(next, t);
+    setTeks(built);
+    runPreview(built, t);
+  }
+
+  /** Urai teks TCML menjadi kartu (untuk beralih ke mode Formulir / memuat kuis). */
+  async function uraiKeKartu(value: string, t: "pilihan_ganda" | "teks"): Promise<boolean> {
+    if (!value.trim()) {
+      setCards([kartuKosong()]);
+      return true;
+    }
+    try {
+      const res = await parseTeks(value, t);
+      if (res.success && res.content) {
+        const mapped: CardSoal[] = res.content.questions.map((q) => ({
+          pertanyaan: q.pertanyaan,
+          opsi: q.options.length ? q.options.map((o) => o.teks) : ["", "", "", ""],
+          kunci: q.options.map((o, idx) => (o.is_correct ? idx : -1)).filter((x) => x >= 0),
+          bobot: String(q.bobot ?? 1),
+          referensi: q.jawaban_referensi ?? "",
+        }));
+        setCards(mapped.length ? mapped : [kartuKosong()]);
+        setErrors([]);
+        return true;
+      }
+      setErrors(res.errors ?? []);
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  async function gantiMode(m: "form" | "tcml") {
+    if (m === mode) return;
+    if (m === "form") {
+      const berhasil = await uraiKeKartu(teks, tipe);
+      if (!berhasil) {
+        setError("Teks TCML belum valid — perbaiki dulu di Mode TCML agar bisa diurai menjadi formulir.");
+        return;
+      }
+      setError("");
+    }
+    setMode(m);
   }
 
   useEffect(() => {
@@ -118,7 +188,9 @@ function EditorKuisInner() {
           setAcakOpsi(q.acak_opsi);
           setTampilkanKunci(q.tampilkan_kunci);
           runPreview(q.teks_mentah, q.tipe);
-          // subject id untuk tombol kembali: ambil dari meeting lewat detail kelas tidak langsung tersedia; pakai kelasParam bila ada
+          // Muat sebagai formulir bila teksnya bisa diurai (umumnya selalu bisa).
+          const okParse = await uraiKeKartu(q.teks_mentah, q.tipe);
+          if (!okParse) setMode("tcml");
         } catch (err) {
           setError(err instanceof Error ? err.message : "Gagal memuat kuis.");
         }
@@ -180,6 +252,32 @@ function EditorKuisInner() {
     }
   }
 
+  function updateCard(i: number, patch: Partial<CardSoal>) {
+    const next = cards.map((c, idx) => (idx === i ? { ...c, ...patch } : c));
+    sinkronDariKartu(next);
+  }
+
+  function pakaiContohPG() {
+    if (cards.some((c) => c.pertanyaan.trim()) && !window.confirm("Ganti isi formulir dengan contoh soal PG?")) return;
+    setTipe("pilihan_ganda");
+    sinkronDariKartu(
+      [
+        { pertanyaan: "Ibu kota Indonesia adalah...", opsi: ["Bandung", "Jakarta", "Surabaya", "Medan"], kunci: [1], bobot: "1", referensi: "" },
+        { pertanyaan: "Pilih bilangan prima berikut ini (boleh lebih dari satu).", opsi: ["2", "4", "5", "9"], kunci: [0, 2], bobot: "2", referensi: "" },
+      ],
+      "pilihan_ganda",
+    );
+  }
+
+  function pakaiContohEsai() {
+    if (cards.some((c) => c.pertanyaan.trim()) && !window.confirm("Ganti isi formulir dengan contoh soal esai?")) return;
+    setTipe("teks");
+    sinkronDariKartu(
+      [{ pertanyaan: "Jelaskan proses fotosintesis dengan bahasamu sendiri.", opsi: [], kunci: [], bobot: "1", referensi: "Jawaban referensi untuk pedoman penilaian guru." }],
+      "teks",
+    );
+  }
+
   return (
     <main className="page" style={{ maxWidth: 1200 }}>
       <AppHeader user={user} />
@@ -190,13 +288,13 @@ function EditorKuisInner() {
       {error && <div className="alert alert-error">{error}</div>}
       {ok && <div className="alert alert-ok">{ok}</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }}>
         <div>
           <label className="label">Judul kuis</label>
-          <input className="input" value={judul} onChange={(e) => setJudul(e.target.value)} />
+          <input className="input" value={judul} onChange={(e) => setJudul(e.target.value)} placeholder="cth: Latihan Bab 2" />
         </div>
         <div>
-          <label className="label">Tipe</label>
+          <label className="label">Jenis soal</label>
           <select
             className="select"
             value={tipe}
@@ -204,7 +302,8 @@ function EditorKuisInner() {
             onChange={(e) => {
               const t = e.target.value as "pilihan_ganda" | "teks";
               setTipe(t);
-              runPreview(teks, t);
+              if (mode === "form") sinkronDariKartu(cards, t);
+              else runPreview(teks, t);
             }}
           >
             <option value="pilihan_ganda">Pilihan Ganda</option>
@@ -212,45 +311,151 @@ function EditorKuisInner() {
           </select>
         </div>
         <div>
-          <label className="label">Durasi (menit, kosongkan = tanpa batas)</label>
-          <input className="input" type="number" min={1} value={durasi} onChange={(e) => setDurasi(e.target.value)} />
+          <label className="label">Cara mengisi soal</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className={`btn btn-sm ${mode === "form" ? "btn-primary" : ""}`} onClick={() => gantiMode("form")}>📝 Formulir</button>
+            <button className={`btn btn-sm ${mode === "tcml" ? "btn-primary" : ""}`} onClick={() => gantiMode("tcml")}>⌨️ Mode TCML (ahli)</button>
+          </div>
+          <p className="muted" style={{ marginTop: 6 }}>
+            {mode === "form" ? "Isi kartu soal — format tersusun otomatis." : "Tulis format TCML langsung; beralih ke Formulir akan menguraikannya."}
+          </p>
         </div>
-        <div>
-          <label className="label">Dibuka pada</label>
-          <input className="input" type="datetime-local" value={dibuka} onChange={(e) => setDibuka(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">Ditutup pada</label>
-          <input className="input" type="datetime-local" value={ditutup} onChange={(e) => setDitutup(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 10 }}>
-        <label><input type="checkbox" checked={acakSoal} onChange={(e) => setAcakSoal(e.target.checked)} /> Acak urutan soal</label>
-        <label><input type="checkbox" checked={acakOpsi} onChange={(e) => setAcakOpsi(e.target.checked)} /> Acak urutan opsi</label>
-        <label><input type="checkbox" checked={tampilkanKunci} onChange={(e) => setTampilkanKunci(e.target.checked)} /> Tampilkan kunci ke siswa setelah submit</label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, marginTop: 8 }}>
+      <p style={{ marginTop: 10 }}>
+        <span className="muted">Mulai cepat: </span>
+        <button className="btn btn-sm" onClick={pakaiContohPG}>🧪 Contoh PG</button>{" "}
+        <button className="btn btn-sm" onClick={pakaiContohEsai}>✍️ Contoh Esai</button>
+      </p>
+
+      <details style={{ border: "1px dashed var(--border)", borderRadius: 10, padding: "10px 12px", marginTop: 12 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700 }}>⚙️ Pengaturan lanjutan (opsional)</summary>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12, marginTop: 10 }}>
+          <div>
+            <label className="label">Durasi (menit, kosongkan = tanpa batas)</label>
+            <input className="input" type="number" min={1} value={durasi} onChange={(e) => setDurasi(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Dibuka pada</label>
+            <input className="input" type="datetime-local" value={dibuka} onChange={(e) => setDibuka(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Ditutup pada</label>
+            <input className="input" type="datetime-local" value={ditutup} onChange={(e) => setDitutup(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 10 }}>
+          <label><input type="checkbox" checked={acakSoal} onChange={(e) => setAcakSoal(e.target.checked)} /> Acak urutan soal</label>
+          <label><input type="checkbox" checked={acakOpsi} onChange={(e) => setAcakOpsi(e.target.checked)} /> Acak urutan opsi</label>
+          <label><input type="checkbox" checked={tampilkanKunci} onChange={(e) => setTampilkanKunci(e.target.checked)} /> Tampilkan kunci ke siswa setelah selesai</label>
+        </div>
+      </details>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, marginTop: 14 }}>
         <div>
-          <label className="label">Teks TCML kuis</label>
-          <textarea
-            className="textarea"
-            value={teks}
-            onChange={(e) => {
-              setTeks(e.target.value);
-              runPreview(e.target.value, tipe);
-            }}
-            rows={22}
-            spellCheck={false}
-            style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: ".86rem" }}
-            placeholder={tipe === "pilihan_ganda" ? CONTOH_PG : CONTOH_ESAI}
-          />
-          <p className="muted">
-            Ekstensi v2: <code>[WEIGHT]2[/WEIGHT]</code> untuk bobot soal, <code>[ANSWER]B, C[/ANSWER]</code> untuk multi-jawaban-benar (siswa harus memilih himpunan yang persis sama).
-          </p>
+          {mode === "form" ? (
+            <>
+              {cards.map((c, i) => (
+                <div className="card" key={i} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong>Soal {i + 1}</strong>
+                    <span>
+                      <span className="muted">Bobot </span>
+                      <input
+                        type="number" min={0.5} step={0.5} value={c.bobot} style={{ width: 62 }}
+                        className="input"
+                        onChange={(e) => updateCard(i, { bobot: e.target.value })}
+                      />{" "}
+                      <button className="btn btn-sm btn-danger" onClick={() => sinkronDariKartu(cards.filter((_, idx) => idx !== i))}>Hapus</button>
+                    </span>
+                  </div>
+                  <textarea
+                    className="textarea" rows={2} style={{ marginTop: 8 }}
+                    placeholder="Tulis pertanyaan di sini..."
+                    value={c.pertanyaan}
+                    onChange={(e) => updateCard(i, { pertanyaan: e.target.value })}
+                  />
+                  {tipe === "pilihan_ganda" ? (
+                    <>
+                      {c.opsi.map((o, j) => (
+                        <div key={j} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 7 }}>
+                          <input
+                            type="checkbox"
+                            title="Tandai sebagai jawaban benar (boleh lebih dari satu)"
+                            checked={c.kunci.includes(j)}
+                            onChange={(e) =>
+                              updateCard(i, { kunci: e.target.checked ? [...c.kunci, j] : c.kunci.filter((k) => k !== j) })
+                            }
+                          />
+                          <b>{HURUF[j]}.</b>
+                          <input
+                            className="input" style={{ flex: 1 }} placeholder={`Opsi ${HURUF[j]}`}
+                            value={o}
+                            onChange={(e) => {
+                              const opsi = [...c.opsi];
+                              opsi[j] = e.target.value;
+                              updateCard(i, { opsi });
+                            }}
+                          />
+                          {c.kunci.includes(j) && <span className="badge">kunci</span>}
+                          {c.opsi.length > 2 && (
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => {
+                                const opsi = c.opsi.filter((_, idx) => idx !== j);
+                                const kunci = c.kunci.filter((k) => k !== j).map((k) => (k > j ? k - 1 : k));
+                                updateCard(i, { opsi, kunci });
+                              }}
+                            >✕</button>
+                          )}
+                        </div>
+                      ))}
+                      <p className="muted" style={{ marginTop: 6 }}>Centang kotak di kiri opsi untuk menandai jawaban benar — boleh lebih dari satu (siswa harus memilih persis himpunan itu).</p>
+                      {c.opsi.length < 5 && (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => updateCard(i, { opsi: [...c.opsi, ""] })}
+                        >＋ Tambah Opsi</button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <label className="label">Jawaban referensi (pedoman penilaian guru, tidak dilihat siswa)</label>
+                      <textarea
+                        className="textarea" rows={2}
+                        value={c.referensi}
+                        onChange={(e) => updateCard(i, { referensi: e.target.value })}
+                      />
+                    </>
+                  )}
+                </div>
+              ))}
+              <button className="btn" style={{ width: "100%", padding: 11 }} onClick={() => sinkronDariKartu([...cards, kartuKosong()])}>
+                ＋ Tambah Soal
+              </button>
+            </>
+          ) : (
+            <>
+              <label className="label">Teks TCML kuis</label>
+              <textarea
+                className="textarea"
+                value={teks}
+                onChange={(e) => {
+                  setTeks(e.target.value);
+                  runPreview(e.target.value, tipe);
+                }}
+                rows={24}
+                spellCheck={false}
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: ".86rem" }}
+              />
+              <p className="muted">
+                Ekstensi v2: <code>[WEIGHT]2[/WEIGHT]</code> untuk bobot soal, <code>[ANSWER]B, C[/ANSWER]</code> untuk multi-jawaban-benar.
+              </p>
+            </>
+          )}
           {errors.length > 0 && (
-            <div className="alert alert-error">
-              <strong>{errors.length} error TCML:</strong>
+            <div className="alert alert-error" style={{ marginTop: 10 }}>
+              <strong>{errors.length} masalah pada format kuis:</strong>
               <ul style={{ marginLeft: 18 }}>
                 {errors.map((e, i) => (
                   <li key={i}>Baris {e.line}: {e.message}</li>
@@ -273,7 +478,7 @@ function EditorKuisInner() {
             </div>
           ))}
           {preview.length === 0 && (
-            <div className="card"><p className="muted">Pratinjau soal muncul di sini setelah TCML valid.</p></div>
+            <div className="card"><p className="muted">Pratinjau soal muncul di sini setelah format valid.</p></div>
           )}
         </div>
       </div>

@@ -16,6 +16,8 @@ from ..access import (
 from ..db import get_db
 from ..deps import get_current_user, require_csrf, require_roles
 from ..models import Enrollment, Meeting, Subject, User
+from ..deps import write_audit
+from ..provisioning import create_user_record, user_admin_out
 
 router = APIRouter(prefix="/api/v1/subjects", tags=["subjects"])
 staff = require_roles("guru", "admin")
@@ -332,3 +334,28 @@ def unenroll_student(
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+class NewStudentIn(BaseModel):
+    username: str
+    nama_lengkap: Optional[str] = None
+    password: str
+
+
+@router.post("/{subject_id}/students/create", status_code=201, dependencies=[Depends(require_csrf)])
+def create_student_in_subject(
+    subject_id: int,
+    body: NewStudentIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """U5 (audit UX): buat akun siswa BARU dan langsung daftarkan ke kelas ini
+    dalam satu langkah — guru tidak perlu bolak-balik halaman Siswa."""
+    s = get_subject(db, subject_id)
+    require_subject_manage(db, user, s)
+    siswa = create_user_record(db, user, body.username, body.nama_lengkap, body.password, "siswa")
+    write_audit(db, user.id, "user.create", "user", siswa.id, {"role": "siswa", "username": siswa.username, "via": "kelas"})
+    db.add(Enrollment(student_id=siswa.id, subject_id=s.id))
+    db.commit()
+    db.refresh(siswa)
+    return {**user_admin_out(db, siswa), "terdaftar_di_kelas": s.id}

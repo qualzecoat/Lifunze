@@ -23,6 +23,61 @@ Tulis isi materi di sini.
 [NOTE]Catatan penting untuk siswa.[/NOTE]
 [/MATERIAL]`;
 
+const TEMPLATES: { nama: string; judul: string; teks: string }[] = [
+  {
+    nama: "📖 Materi Biasa",
+    judul: "Materi Baru",
+    teks: CONTOH,
+  },
+  {
+    nama: "🎯 Latihan",
+    judul: "Latihan",
+    teks: `[EXERCISE]
+[TITLE]Latihan[/TITLE]
+[TASKS]
+[TASK]Tugas pertama yang harus dikerjakan siswa.[/TASK]
+[TASK]Tugas kedua.[/TASK]
+[/TASKS]
+[HINT]Petunjuk untuk membantu siswa.[/HINT]
+[/EXERCISE]`,
+  },
+  {
+    nama: "🐱 Proyek Scratch",
+    judul: "Proyek Scratch",
+    teks: `[PROJECT]
+[TITLE]Proyek Scratch[/TITLE]
+[DESCRIPTION]Buat proyek Scratch sesuai tema pertemuan ini. Kumpulkan file .sb3 lewat panel pengumpulan di halaman materi.[/DESCRIPTION]
+[REQUIREMENTS]
+[REQUIREMENT]Minimal 2 sprite[/REQUIREMENT]
+[REQUIREMENT]Memakai blok perulangan[/REQUIREMENT]
+[/REQUIREMENTS]
+[OUTPUT]File proyek Scratch (.sb3).[/OUTPUT]
+[RUBRIC]
+[CRITERIA]Kreativitas — 50 poin[/CRITERIA]
+[CRITERIA]Kesesuaian tema — 50 poin[/CRITERIA]
+[/RUBRIC]
+[/PROJECT]`,
+  },
+  {
+    nama: "🧩 Materi Scratch",
+    judul: "Materi Scratch",
+    teks: `[MATERIAL]
+[TITLE]Belajar Scratch[/TITLE]
+Coba proyek contoh berikut — tekan bendera hijau untuk menjalankannya.
+[SCRATCH]104[/SCRATCH]
+[SPRITE]
+Kucing
+Sprite utama pada proyek contoh.
+[/SPRITE]
+[BLOCKS]
+when green flag clicked
+move (10) steps
+[/BLOCKS]
+[NOTE]Ganti angka pada blok move untuk mengubah jarak langkah.[/NOTE]
+[/MATERIAL]`,
+  },
+];
+
 function EditorInner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -183,6 +238,24 @@ function EditorInner() {
       <label className="label">Judul materi</label>
       <input className="input" value={judul} onChange={(e) => setJudul(e.target.value)} placeholder="mis. Pecahan Dasar" />
 
+      <p style={{ marginTop: 10 }}>
+        <span className="muted">Mulai dari template: </span>
+        {TEMPLATES.map((t) => (
+          <button
+            key={t.nama}
+            className="btn btn-sm"
+            style={{ marginRight: 6, marginBottom: 6 }}
+            onClick={() => {
+              if (teks.trim() && teks !== CONTOH && !window.confirm(`Ganti isi editor dengan template "${t.nama}"?`)) return;
+              if (!judul.trim()) setJudul(t.judul);
+              onTeksChange(t.teks);
+            }}
+          >
+            {t.nama}
+          </button>
+        ))}
+      </p>
+
       {mode === "bank" && (
         <>
           <label className="label">Kategori bank</label>
@@ -209,7 +282,7 @@ function EditorInner() {
           />
           {errors.length > 0 && (
             <div className="alert alert-error">
-              <strong>{errors.length} error TCML:</strong>
+              <strong>{errors.length} masalah pada format materi:</strong>
               <ul style={{ marginLeft: 18 }}>
                 {errors.map((e, i) => (
                   <li key={i}>Baris {e.line}: {e.message}</li>

@@ -85,6 +85,14 @@ export default function KelasDetailPage() {
     per_siswa?: { siswa: { username: string; nama_lengkap: string | null } | null; persen_total: number; persen_materi: number; persen_kuis: number; rata_skor: number | null }[];
   } | null>(null);
 
+  // U2 audit UX: halaman kelas bertab (konten adalah tab bawaan).
+  const [tab, setTab] = useState<"konten" | "pengumuman" | "siswa" | "progress">("konten");
+  const [openMeetings, setOpenMeetings] = useState<Set<number> | null>(null);
+  // U5: form siswa baru langsung di kelas.
+  const [nsUsername, setNsUsername] = useState("");
+  const [nsNama, setNsNama] = useState("");
+  const [nsPassword, setNsPassword] = useState("");
+
   const load = useCallback(async () => {
     try {
       const detail = await apiFetch<SubjectDetail>(`/api/v1/subjects/${sid}`);
@@ -298,6 +306,38 @@ export default function KelasDetailPage() {
     load();
   }
 
+  function meetingOpen(m: Meeting, idx: number): boolean {
+    if (openMeetings === null) return idx === 0;
+    return openMeetings.has(m.id);
+  }
+
+  function toggleMeeting(m: Meeting, idx: number) {
+    const current = new Set<number>(
+      openMeetings === null ? subject!.meetings.filter((_, i) => i === 0).map((x) => x.id) : openMeetings,
+    );
+    if (current.has(m.id)) current.delete(m.id);
+    else current.add(m.id);
+    setOpenMeetings(current);
+  }
+
+  async function createStudentInClass(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      const res = await apiFetch<{ username: string }>(`/api/v1/subjects/${sid}/students/create`, {
+        method: "POST",
+        body: { username: nsUsername, nama_lengkap: nsNama || null, password: nsPassword },
+      });
+      setOk(`Akun siswa "${res.username}" dibuat dan langsung terdaftar di kelas ini. Bagikan password sementaranya — siswa wajib mengganti saat login pertama.`);
+      setNsUsername("");
+      setNsNama("");
+      setNsPassword("");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat siswa.");
+    }
+  }
+
   async function deleteSubject() {
     if (!window.confirm(`Hapus mata pelajaran "${subject?.nama}" beserta seluruh pertemuan & materinya?`)) return;
     await apiFetch(`/api/v1/subjects/${sid}`, { method: "DELETE" });
@@ -336,7 +376,59 @@ export default function KelasDetailPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {ok && <div className="alert alert-ok">{ok}</div>}
 
-      {progress && (
+      <div style={{ display: "flex", gap: 4, borderBottom: "2px solid var(--border)", marginTop: 14, flexWrap: "wrap" }}>
+        {(
+          [
+            ["konten", "📚 Konten"],
+            ["pengumuman", "📢 Pengumuman"],
+            ["siswa", `👥 Siswa (${members.length})`],
+            ["progress", "📈 Progress"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              border: "none", background: "none", padding: "9px 14px", fontWeight: 700, cursor: "pointer",
+              color: tab === key ? "var(--violet)" : "var(--muted)",
+              borderBottom: tab === key ? "3px solid var(--violet)" : "3px solid transparent",
+              marginBottom: -2, fontSize: ".95rem",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "konten" && kelola && (() => {
+        const hasMeeting = subject.meetings.length > 0;
+        const hasContent = subject.meetings.some((m) => m.materials.length > 0 || m.quizzes.length > 0);
+        const hasStudents = members.length > 0;
+        if (hasMeeting && hasContent && hasStudents) return null;
+        const item = (done: boolean, n: number, teks: React.ReactNode) => (
+          <li style={{ listStyle: "none", padding: "5px 0", display: "flex", gap: 9, alignItems: "flex-start" }}>
+            <span style={{
+              width: 21, height: 21, borderRadius: "50%", flex: "none", display: "inline-flex",
+              alignItems: "center", justifyContent: "center", fontSize: ".75rem", fontWeight: 800,
+              background: done ? "var(--ok)" : "#fff", color: done ? "#fff" : "#8a6100",
+              border: done ? "none" : "2px solid var(--amber)",
+            }}>{done ? "✓" : n}</span>
+            <span>{teks}</span>
+          </li>
+        );
+        return (
+          <div className="card" style={{ marginTop: 14, borderLeft: "5px solid var(--violet)" }}>
+            <h3>🚀 Mulai Kelas Ini</h3>
+            <ul style={{ marginTop: 6 }}>
+              {item(hasMeeting, 1, <><strong>Buat pertemuan pertama</strong>{hasMeeting ? " — selesai" : " — pakai form Tambah Pertemuan di bawah daftar pertemuan."}</>)}
+              {item(hasContent, 2, <><strong>Tambah materi atau kuis</strong>{hasContent ? " — selesai" : " — tombol ➕ pada kartu pertemuan; editor kuis kini punya mode Formulir."}</>)}
+              {item(hasStudents, 3, <><strong>Daftarkan siswa</strong>{hasStudents ? ` — ${members.length} siswa terdaftar` : <> — lewat tab <button className="btn btn-sm" onClick={() => setTab("siswa")}>👥 Siswa</button>: buat akun baru di sana, langsung terdaftar di kelas ini.</>}</>)}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {tab === "progress" && progress && (
         <div className="card" style={{ marginTop: 14 }}>
           <h3>📈 Progress Belajar</h3>
           {progress.mode === "siswa" && progress.ringkasan && (
@@ -375,6 +467,7 @@ export default function KelasDetailPage() {
         </div>
       )}
 
+      {tab === "pengumuman" && (<>
       <div className="card" style={{ marginTop: 14 }}>
         <h3>📢 Pengumuman</h3>
         {announcements.map((a) => (
@@ -397,10 +490,14 @@ export default function KelasDetailPage() {
         )}
       </div>
 
+      </>)}
+
+      {tab === "konten" && (<>
       {subject.meetings.map((m, idx) => (
         <div className="card" key={m.id} style={{ marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <h3>
+              <button className="btn btn-sm" onClick={() => toggleMeeting(m, idx)} title="Buka/tutup isi pertemuan">{meetingOpen(m, idx) ? "▾" : "▸"}</button>{" "}
               {idx + 1}. {m.judul}
               {m.tanggal && <span className="muted" style={{ fontWeight: 400 }}> · {m.tanggal}</span>}
             </h3>
@@ -413,6 +510,7 @@ export default function KelasDetailPage() {
               </div>
             )}
           </div>
+          {meetingOpen(m, idx) && (<>
           {m.deskripsi && <p className="muted">{m.deskripsi}</p>}
           <div style={{ marginTop: 10 }}>
             {m.materials.map((mt) => (
@@ -503,6 +601,7 @@ export default function KelasDetailPage() {
               )}
             </div>
           )}
+          </>)}
         </div>
       ))}
       {subject.meetings.length === 0 && <p className="muted" style={{ marginTop: 14 }}>Belum ada pertemuan.</p>}
@@ -525,6 +624,31 @@ export default function KelasDetailPage() {
             </div>
           </div>
           <button className="btn btn-primary" type="submit" style={{ marginTop: 12 }}>Tambah</button>
+        </form>
+      )}
+
+      </>)}
+
+      {tab === "siswa" && (<>
+      {kelola && (
+        <form className="card" onSubmit={createStudentInClass} style={{ marginTop: 16, borderLeft: "5px solid var(--violet)" }}>
+          <h3>➕ Siswa Baru — langsung terdaftar di kelas ini</h3>
+          <p className="muted" style={{ marginTop: 4 }}>Satu langkah: akun dibuat dan langsung masuk kelas ini. Untuk banyak siswa sekaligus, impor CSV di halaman Siswa kini bisa memilih kelas tujuan.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12, marginTop: 8 }}>
+            <div>
+              <label className="label">Nama lengkap</label>
+              <input className="input" value={nsNama} onChange={(e) => setNsNama(e.target.value)} placeholder="cth: Salsabila Zahra" />
+            </div>
+            <div>
+              <label className="label">Username</label>
+              <input className="input" value={nsUsername} onChange={(e) => setNsUsername(e.target.value)} placeholder="cth: salsabila" required />
+            </div>
+            <div>
+              <label className="label">Password sementara (min. 8)</label>
+              <input className="input" value={nsPassword} onChange={(e) => setNsPassword(e.target.value)} placeholder="dibagikan ke siswa" required />
+            </div>
+          </div>
+          <button className="btn btn-primary" type="submit" style={{ marginTop: 12 }}>Buat &amp; Daftarkan</button>
         </form>
       )}
 
@@ -567,6 +691,7 @@ export default function KelasDetailPage() {
           </div>
         )}
       </div>
+      </>)}
     </main>
   );
 }

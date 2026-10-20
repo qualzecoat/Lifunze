@@ -8,7 +8,7 @@ import csv
 import io
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -49,11 +49,20 @@ def create_student(
 @router.post("/students/import", dependencies=[Depends(require_csrf)])
 async def import_students(
     file: UploadFile = File(...),
+    subject_id: Optional[int] = Form(default=None),
     actor: User = Depends(guru_admin),
     db: Session = Depends(get_db),
 ):
     """Import massal siswa dari CSV. Kolom: username,nama_lengkap,password
-    (nama_lengkap boleh kosong). Baris yang gagal tidak menggagalkan baris lain."""
+    (nama_lengkap boleh kosong). Baris yang gagal tidak menggagalkan baris lain.
+    Bila subject_id diberikan, siswa yang berhasil dibuat langsung didaftarkan
+    ke kelas itu (U5 audit UX) — aktor wajib pengelola kelasnya."""
+    target_subject = None
+    if subject_id is not None:
+        from ..access import get_subject, require_subject_manage
+
+        target_subject = get_subject(db, subject_id)
+        require_subject_manage(db, actor, target_subject)
     raw = await file.read()
     try:
         text = raw.decode("utf-8-sig")
@@ -74,7 +83,11 @@ async def import_students(
         try:
             # SAVEPOINT per baris: kegagalan satu baris tidak membatalkan baris lain.
             with db.begin_nested():
-                create_user_record(db, actor, username, nama or None, password, "siswa")
+                siswa = create_user_record(db, actor, username, nama or None, password, "siswa")
+                if target_subject is not None:
+                    from ..models import Enrollment
+
+                    db.add(Enrollment(student_id=siswa.id, subject_id=target_subject.id))
             berhasil += 1
         except HTTPException as e:
             gagal.append({"baris": i, "username": username, "pesan": e.detail})
