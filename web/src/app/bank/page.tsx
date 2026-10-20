@@ -37,6 +37,14 @@ interface ExploreMaterial extends SavedMaterial {
 interface ExploreQuiz extends SavedQuiz {
   pemilik: { username: string; nama_lengkap: string | null };
 }
+interface TemplateRow {
+  id: number;
+  nama: string;
+  deskripsi: string | null;
+  jumlah_pertemuan: number;
+  jumlah_materi: number;
+  jumlah_kuis: number;
+}
 
 export default function BankPage() {
   const router = useRouter();
@@ -47,6 +55,7 @@ export default function BankPage() {
   const [questions, setQuestions] = useState<BankQuestion[]>([]);
   const [exploreMats, setExploreMats] = useState<ExploreMaterial[]>([]);
   const [exploreQuizzes, setExploreQuizzes] = useState<ExploreQuiz[]>([]);
+  const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -135,16 +144,6 @@ export default function BankPage() {
   }
 
   // -- Template Kelas --
-  interface TemplateRow {
-    id: number;
-    nama: string;
-    deskripsi: string | null;
-    jumlah_pertemuan: number;
-    jumlah_materi: number;
-    jumlah_kuis: number;
-  }
-  const [templates, setTemplates] = useState<TemplateRow[]>([]);
-
   async function loadTemplates() {
     try {
       setTemplates(await apiFetch<TemplateRow[]>("/api/v1/class-templates"));
