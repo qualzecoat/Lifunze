@@ -14,6 +14,7 @@ from .routers import (
     auth,
     bank,
     generate,
+    learning,
     materials,
     packs,
     quizzes,
@@ -43,6 +44,7 @@ app.include_router(bank.router)
 app.include_router(quizzes.router)
 app.include_router(packs.router)
 app.include_router(generate.router)
+app.include_router(learning.router)
 
 
 class ParseKind(str, Enum):

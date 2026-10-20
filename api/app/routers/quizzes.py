@@ -27,6 +27,7 @@ from ..deps import get_current_user, require_csrf
 from ..models import (
     AttemptAnswer,
     BankQuestion,
+    Enrollment,
     Question,
     QuestionOption,
     Quiz,
@@ -34,6 +35,7 @@ from ..models import (
     SavedQuiz,
     User,
 )
+from ..notify import notify
 from ..tcml.quiz import parse_quiz_v2
 from .bank import _validate_category
 
@@ -73,6 +75,20 @@ def _parse_or_400(teks: str, tipe: str) -> dict:
             detail={"pesan": "Teks TCML kuis tidak valid.", "errors": res["errors"]},
         )
     return res["content"]
+
+
+def _notify_quiz_baru(db: Session, quiz: Quiz) -> None:
+    """Notifikasi kuis baru ke semua siswa terdaftar pada mapel kuis ini."""
+    meeting = get_meeting(db, quiz.meeting_id)
+    enrolled = (
+        db.query(Enrollment).filter(Enrollment.subject_id == meeting.subject_id).all()
+    )
+    notify(
+        db,
+        [e.student_id for e in enrolled],
+        "kuis_baru",
+        {"quiz_id": quiz.id, "subject_id": meeting.subject_id, "judul": quiz.judul},
+    )
 
 
 def _create_questions(db: Session, quiz: Quiz, parsed_questions: list) -> None:
@@ -189,6 +205,7 @@ def create_quiz(
     db.add(quiz)
     db.flush()
     _create_questions(db, quiz, parsed["questions"])
+    _notify_quiz_baru(db, quiz)
     db.commit()
     db.refresh(quiz)
     return _quiz_full_out(db, quiz)
@@ -223,6 +240,7 @@ def create_quiz_from_bank(
     db.add(quiz)
     db.flush()
     _create_questions(db, quiz, parsed["questions"])
+    _notify_quiz_baru(db, quiz)
     db.commit()
     db.refresh(quiz)
     return _quiz_full_out(db, quiz)
@@ -623,6 +641,15 @@ def submit_attempt(
     _grade_and_submit(db, attempt, quiz, when=_now())
     db.commit()
     db.refresh(attempt)
+    if quiz.tipe == "teks":
+        subject, _ = _subject_of_quiz(db, quiz)
+        notify(
+            db,
+            [subject.dibuat_oleh],
+            "attempt_masuk",
+            {"quiz_id": quiz.id, "attempt_id": attempt.id, "judul": quiz.judul, "siswa_id": user.id},
+        )
+        db.commit()
     return attempt_view(db, attempt, quiz, user)
 
 
@@ -710,6 +737,14 @@ def grade_attempt(
         attempt.status = "graded"
     db.commit()
     db.refresh(attempt)
+    if attempt.status == "graded":
+        notify(
+            db,
+            [attempt.siswa_id],
+            "nilai_keluar",
+            {"quiz_id": quiz.id, "attempt_id": attempt.id, "judul": quiz.judul, "skor": attempt.skor},
+        )
+        db.commit()
     return attempt_view(db, attempt, quiz, user)
 
 
@@ -913,6 +948,7 @@ def compose_quiz_from_bank_questions(
     db.add(quiz)
     db.flush()
     _create_questions(db, quiz, data)
+    _notify_quiz_baru(db, quiz)
     db.commit()
     db.refresh(quiz)
     return _quiz_full_out(db, quiz)

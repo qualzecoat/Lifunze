@@ -239,6 +239,7 @@ async def upload_file(
 @router.get("/api/v1/files/{file_id}")
 def download_file(
     file_id: int,
+    hemat: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -251,6 +252,28 @@ def download_file(
     path = _storage_path(rec.storage_key)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File tidak ditemukan di penyimpanan.")
+    # Mode hemat kuota (Fase 6): gambar disajikan sebagai varian terkompresi
+    # (dibuat malas/lazy saat pertama diminta, lalu di-cache di disk).
+    if hemat and (rec.mime_type or "").startswith("image/"):
+        hemat_path = path + ".hemat.jpg"
+        if not os.path.exists(hemat_path):
+            try:
+                from PIL import Image
+
+                img = Image.open(path)
+                if img.mode in ("RGBA", "LA", "P"):
+                    img = img.convert("RGBA")
+                    bg = Image.new("RGBA", img.size, "WHITE")
+                    img = Image.alpha_composite(bg, img).convert("RGB")
+                else:
+                    img = img.convert("RGB")
+                img.thumbnail((1280, 1280))
+                img.save(hemat_path, "JPEG", quality=72)
+            except Exception:
+                hemat_path = path  # gagal kompres -> sajikan asli
+        if hemat_path != path:
+            stem = os.path.splitext(rec.original_filename)[0]
+            return FileResponse(hemat_path, media_type="image/jpeg", filename=f"{stem}_hemat.jpg")
     return FileResponse(path, media_type=rec.mime_type or "application/octet-stream", filename=rec.original_filename)
 
 

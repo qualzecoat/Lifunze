@@ -1,12 +1,21 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Logo from "./Logo";
-import { logout, type User } from "@/lib/api";
+import { apiFetch, logout, type User } from "@/lib/api";
 
 export default function AppHeader({ user }: { user: User }) {
   const router = useRouter();
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    apiFetch<{ belum_dibaca: number }>("/api/v1/notifications/summary")
+      .then((r) => setUnread(r.belum_dibaca))
+      .catch(() => {});
+  }, []);
+
   async function onLogout() {
     await logout();
     router.push("/login");
@@ -35,6 +44,9 @@ export default function AppHeader({ user }: { user: User }) {
         {(user.role === "guru" || user.role === "admin") && <Link href="/generate">✨ Generate AI</Link>}
         {(user.role === "guru" || user.role === "admin") && <Link href="/pengaturan-ai">Pengaturan AI</Link>}
         <Link href="/ganti-password">Ganti Password</Link>
+        <Link href="/notifikasi" title="Notifikasi">
+          🔔{unread > 0 && <span className="badge" style={{ marginLeft: 4 }}>{unread}</span>}
+        </Link>
         <span className="muted">
           {user.nama_lengkap ?? user.username} · <span className="badge">{user.role}</span>
         </span>

@@ -76,16 +76,48 @@ export default function KelasDetailPage() {
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [newMeeting, setNewMeeting] = useState({ judul: "", tanggal: "", deskripsi: "" });
+  const [announcements, setAnnouncements] = useState<{ id: number; judul: string; isi: string; penulis: string | null; created_at: string | null }[]>([]);
+  const [annJudul, setAnnJudul] = useState("");
+  const [annIsi, setAnnIsi] = useState("");
+  const [progress, setProgress] = useState<{
+    mode: string;
+    ringkasan?: { persen_total: number; persen_materi: number; persen_kuis: number; rata_skor: number | null; materi_dibaca: number; total_materi: number; kuis_dikerjakan: number; total_kuis: number };
+    per_siswa?: { siswa: { username: string; nama_lengkap: string | null } | null; persen_total: number; persen_materi: number; persen_kuis: number; rata_skor: number | null }[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
       const detail = await apiFetch<SubjectDetail>(`/api/v1/subjects/${sid}`);
       setSubject(detail);
       setMembers(await apiFetch<Member[]>(`/api/v1/subjects/${sid}/students`));
+      setAnnouncements(await apiFetch(`/api/v1/subjects/${sid}/announcements`));
+      setProgress(await apiFetch(`/api/v1/subjects/${sid}/progress`));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat kelas.");
     }
   }, [sid]);
+
+  async function addAnnouncement(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await apiFetch(`/api/v1/subjects/${sid}/announcements`, {
+        method: "POST",
+        body: { judul: annJudul, isi: annIsi },
+      });
+      setAnnJudul("");
+      setAnnIsi("");
+      setOk("Pengumuman terkirim; siswa menerima notifikasi.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat pengumuman.");
+    }
+  }
+
+  async function deleteAnnouncement(id: number) {
+    if (!window.confirm("Hapus pengumuman ini?")) return;
+    await apiFetch(`/api/v1/announcements/${id}`, { method: "DELETE" });
+    load();
+  }
 
   useEffect(() => {
     getMe().then((u) => {
@@ -303,6 +335,67 @@ export default function KelasDetailPage() {
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       {ok && <div className="alert alert-ok">{ok}</div>}
+
+      {progress && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h3>📈 Progress Belajar</h3>
+          {progress.mode === "siswa" && progress.ringkasan && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Progress keseluruhan</span>
+                <strong>{progress.ringkasan.persen_total}%</strong>
+              </div>
+              <div style={{ background: "var(--border)", borderRadius: 8, height: 12, margin: "6px 0 10px" }}>
+                <div style={{ width: `${progress.ringkasan.persen_total}%`, background: "var(--violet)", height: "100%", borderRadius: 8 }} />
+              </div>
+              <p className="muted">
+                Materi dibaca: {progress.ringkasan.materi_dibaca}/{progress.ringkasan.total_materi} ({progress.ringkasan.persen_materi}%) ·
+                Kuis dikerjakan: {progress.ringkasan.kuis_dikerjakan}/{progress.ringkasan.total_kuis} ({progress.ringkasan.persen_kuis}%)
+                {progress.ringkasan.rata_skor !== null && <> · Rata-rata skor: {progress.ringkasan.rata_skor}</>}
+              </p>
+            </div>
+          )}
+          {progress.mode === "guru" && progress.per_siswa && (
+            <table className="table" style={{ marginTop: 8 }}>
+              <thead><tr><th>Siswa</th><th>Progress</th><th>Materi</th><th>Kuis</th><th>Rata-rata Skor</th></tr></thead>
+              <tbody>
+                {progress.per_siswa.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.siswa?.nama_lengkap ?? r.siswa?.username ?? "-"}</td>
+                    <td><strong>{r.persen_total}%</strong></td>
+                    <td>{r.persen_materi}%</td>
+                    <td>{r.persen_kuis}%</td>
+                    <td>{r.rata_skor ?? "—"}</td>
+                  </tr>
+                ))}
+                {progress.per_siswa.length === 0 && <tr><td colSpan={5} className="muted">Belum ada siswa terdaftar.</td></tr>}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3>📢 Pengumuman</h3>
+        {announcements.map((a) => (
+          <div key={a.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <strong>{a.judul}</strong>
+              {kelola && <button className="btn btn-sm btn-danger" onClick={() => deleteAnnouncement(a.id)}>Hapus</button>}
+            </div>
+            <p style={{ whiteSpace: "pre-wrap", margin: "4px 0" }}>{a.isi}</p>
+            <p className="muted">{a.penulis} · {a.created_at ? new Date(a.created_at).toLocaleString("id-ID") : ""}</p>
+          </div>
+        ))}
+        {announcements.length === 0 && <p className="muted" style={{ marginTop: 6 }}>Belum ada pengumuman.</p>}
+        {kelola && (
+          <form onSubmit={addAnnouncement} style={{ marginTop: 10 }}>
+            <input className="input" placeholder="Judul pengumuman" value={annJudul} onChange={(e) => setAnnJudul(e.target.value)} required />
+            <textarea className="textarea" rows={2} placeholder="Isi pengumuman..." value={annIsi} onChange={(e) => setAnnIsi(e.target.value)} required style={{ marginTop: 6 }} />
+            <button className="btn btn-sm btn-primary" type="submit" style={{ marginTop: 6 }}>📢 Umumkan</button>
+          </form>
+        )}
+      </div>
 
       {subject.meetings.map((m, idx) => (
         <div className="card" key={m.id} style={{ marginTop: 14 }}>

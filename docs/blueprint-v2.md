@@ -1,6 +1,6 @@
 # Blueprint Arsitektur — Tenebris-Class v2
 
-> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20). **Fase 0–5 selesai** 2026-10-20 (lihat PROJECT.md untuk status per fase).
+> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20). **Fase 0–6 selesai** 2026-10-20 (lihat PROJECT.md untuk status per fase).
 > **Referensi v1:** https://github.com/jeruk125/Tenebris-Class (Flask + SQLite, monolit)
 > **Domain deploy:** `lifunze.aditiamh.my.id`
 > **Tujuan:** Membangun ulang Tenebris-Class dengan stack modern dan ruang fitur yang lebih besar, tanpa kehilangan jiwa v1: **TCML** (bahasa markup konten sendiri), **Bank Materi & Kuis**, dan konten yang bisa **digenerate AI langsung di dalam LMS**.
@@ -530,7 +530,7 @@ Seluruh usulan berikut **disetujui Qualze 2026-10-20** dan sudah didistribusikan
 | **3 — Kuis v2** | Engine kuis baru (questions/options/attempts ternormalisasi), **jendela waktu & durasi** (fitur 1), **bobot & multi-jawaban-benar** (fitur 6), editor + endpoint parse, penilaian esai, **export nilai** (fitur 7) | ✅ Selesai 2026-10-20 |
 | **4 — Bank** | Bank materi & kuis + kategori + snapshot JSONB + copy antar guru; **bank soal & susun kuis acak** (fitur 5) + acak soal/opsi saat pengerjaan | ✅ Selesai 2026-10-20 (bank dasar lebih awal di Fase 2; acak per-attempt di Fase 3; copy antar guru + bank soal di Fase 4) |
 | **5 — Paket Parser & Generate AI** | Registry modul tag (spesifikasi & contoh di DB), **menu Paket Parser** (susun modul + pilih contoh + pratinjau prompt + **ekspor .md**), paket bawaan (Mapel Umum, Spreadsheet, Pemrograman, Kuis PG, Kuis Esai, Kelas Lengkap), **generate di LMS** (job async, bundle multi-dokumen, validasi 2 lapis, self-repair, draf → publish), **impor konten eksternal** | ✅ Selesai 2026-10-20 — catatan: generate berjalan sinkron (job tercatat); contoh dikirim per modul (bukan per contoh dipilih) |
-| **6 — Pengalaman belajar** | **Progress belajar** (fitur 2), **pengumuman mapel** (fitur 3), **notifikasi in-app** (fitur 4), **tugas file `[PROJECT]` + penilaian rubrik** (fitur 8), **mode hemat kuota** (fitur 10) | LMS terasa "besar" |
+| **6 — Pengalaman belajar** | **Progress belajar** (fitur 2), **pengumuman mapel** (fitur 3), **notifikasi in-app** (fitur 4), **tugas file `[PROJECT]` + penilaian rubrik** (fitur 8), **mode hemat kuota** (fitur 10) | ✅ Selesai 2026-10-20 |
 | **7 — Paket khusus** | Modul tag **Scratch** (renderer blok/sprite/stage + spesifikasi + contoh) + paket Scratch; pendalaman paket Mapel Umum | Parser tidak lagi bias pemrograman |
 | **8 — Hardening & go-live** | Rate limiting, validasi magic bytes, review keamanan, backup terjadwal, deploy ke **lifunze.aditiamh.my.id**, data mulai bersih | v2 live |
 | **9 — Masa depan (belum dijadwalkan)** | **Kelas Live Scratch**: fork editor TurboWarp (repo publik terpisah, GPL-3.0) + service WebSocket lock-based "gantian pegang kendali" + room per pertemuan + SSO dari Lifunze. Hanya diaktifkan atas keputusan eksplisit Qualze. Analisis: `docs/kelas-live-scratch.md` | Ruang praktik live Scratch |
