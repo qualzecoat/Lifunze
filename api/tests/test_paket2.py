@@ -95,6 +95,46 @@ def test_ekstrak_dari_kuis_bank(client):
     assert len(client.get("/api/v1/bank/questions").json()) == 2
 
 
+def test_kategori_bank_soal(client):
+    """Kategori bank soal: bisa dipilih saat ekstrak dari kuis bank, dan bisa
+    diubah pada soal yang sudah masuk (PATCH soal)."""
+    make_user("guru1", "guru")
+    csrf = login(client, "guru1")
+    kat = client.post(
+        "/api/v1/bank/categories", json={"nama": "Geografi"}, headers={"x-csrf-token": csrf}
+    ).json()
+    sid, mid, mat, quiz = _kelas_dengan_isi(client, csrf)
+    client.post(f"/api/v1/quizzes/{quiz['id']}/save-to-bank", json={}, headers={"x-csrf-token": csrf})
+    saved = client.get("/api/v1/bank/quizzes").json()[0]
+
+    # ekstrak dengan kategori pilihan (parameter query)
+    r = client.post(
+        f"/api/v1/bank/quizzes/{saved['id']}/extract-questions?kategori_id={kat['id']}",
+        headers={"x-csrf-token": csrf},
+    )
+    assert r.status_code == 201, r.text
+    soal = client.get("/api/v1/bank/questions").json()
+    assert len(soal) == 2
+    assert all(s["kategori_id"] == kat["id"] for s in soal)
+
+    # ubah kategori soal yang sudah ada lewat PATCH (muatan penuh)
+    q0 = soal[0]
+    r = client.patch(
+        f"/api/v1/bank/questions/{q0['id']}",
+        json={
+            "tipe": q0["tipe"],
+            "pertanyaan": q0["pertanyaan"],
+            "bobot": q0["bobot"],
+            "options": q0["options"],
+            "jawaban_referensi": q0["jawaban_referensi"],
+            "kategori_id": None,
+        },
+        headers={"x-csrf-token": csrf},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["kategori_id"] is None
+
+
 def test_template_kelas_roundtrip(client):
     guru_id = make_user("guru1", "guru")
     siswa_id = make_user("siswa1", "siswa", created_by_id=guru_id)

@@ -56,6 +56,7 @@ export default function BankPage() {
   const [exploreMats, setExploreMats] = useState<ExploreMaterial[]>([]);
   const [exploreQuizzes, setExploreQuizzes] = useState<ExploreQuiz[]>([]);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [extractKategori, setExtractKategori] = useState("");
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -129,8 +130,9 @@ export default function BankPage() {
     setError("");
     setOk("");
     try {
+      const qs = extractKategori ? `?kategori_id=${extractKategori}` : "";
       const r = await apiFetch<{ dimasukkan: number; dilewati: number }>(
-        `/api/v1/bank/quizzes/${q.id}/extract-questions`,
+        `/api/v1/bank/quizzes/${q.id}/extract-questions${qs}`,
         { method: "POST" },
       );
       setOk(
@@ -140,6 +142,28 @@ export default function BankPage() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memasukkan ke bank soal.");
+    }
+  }
+
+  async function setQuestionCategory(q: BankQuestion, value: string) {
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/bank/questions/${q.id}`, {
+        method: "PATCH",
+        body: {
+          tipe: q.tipe,
+          pertanyaan: q.pertanyaan,
+          bobot: q.bobot,
+          options: q.options,
+          jawaban_referensi: q.jawaban_referensi,
+          kategori_id: value ? Number(value) : null,
+        },
+      });
+      setOk("Kategori soal diperbarui.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal mengubah kategori soal.");
     }
   }
 
@@ -289,6 +313,21 @@ export default function BankPage() {
 
       <div className="card">
         <h3>Kuis Tersimpan ({quizzes.length})</h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+          <label className="muted" htmlFor="extract-kat">Kategori untuk soal hasil "Ke Bank Soal":</label>
+          <select
+            id="extract-kat"
+            className="select"
+            style={{ width: "auto" }}
+            value={extractKategori}
+            onChange={(e) => setExtractKategori(e.target.value)}
+          >
+            <option value="">Ikuti kategori kuisnya</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.nama}</option>
+            ))}
+          </select>
+        </div>
         <table className="table" style={{ marginTop: 8 }}>
           <thead><tr><th>Judul</th><th>Tipe</th><th>Soal</th><th>Kategori</th><th>Aksi</th></tr></thead>
           <tbody>
@@ -323,7 +362,18 @@ export default function BankPage() {
               <strong>{q.pertanyaan}</strong>{" "}
               <span className="badge">{q.tipe === "pilihan_ganda" ? "PG" : "Esai"}</span>{" "}
               <span className="badge">bobot {q.bobot}</span>{" "}
-              <span className="muted">{catName(q.kategori_id)}</span>
+              <select
+                className="select"
+                style={{ width: "auto", display: "inline-block", padding: "2px 6px", fontSize: "0.85rem" }}
+                value={q.kategori_id ?? ""}
+                onChange={(e) => setQuestionCategory(q, e.target.value)}
+                title="Kategori soal — ubah untuk memindahkan"
+              >
+                <option value="">— tanpa kategori —</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nama}</option>
+                ))}
+              </select>
               {q.options && (
                 <div className="muted">
                   {q.options.map((o) => (

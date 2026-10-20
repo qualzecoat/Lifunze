@@ -225,15 +225,25 @@ def delete_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = 
 
 
 @router.post("/quizzes/{saved_id}/extract-questions", status_code=201, dependencies=[Depends(require_csrf)])
-def extract_saved_quiz_questions(saved_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
+def extract_saved_quiz_questions(
+    saved_id: int,
+    kategori_id: Optional[int] = None,
+    user: User = Depends(staff),
+    db: Session = Depends(get_db),
+):
     """Masukkan semua soal kuis bank ini ke bank soal pemiliknya (permintaan
     Qualze, paket 2026-10-20). Soal yang persis sama dengan yang sudah ada
-    di bank soal dilewati, tidak digandakan."""
+    di bank soal dilewati, tidak digandakan. Kategori tujuan: parameter
+    ?kategori_id= bila dipilih, kalau tidak mengikuti kategori kuis bank."""
     import json as _json
 
     s = db.get(SavedQuiz, saved_id)
     if s is None or s.dibuat_oleh != user.id:
         raise HTTPException(status_code=404, detail="Kuis bank tidak ditemukan.")
+    kategori_tujuan = s.kategori_id
+    if kategori_id is not None:
+        _validate_category(db, user, kategori_id)
+        kategori_tujuan = kategori_id
     questions = s.snapshot if isinstance(s.snapshot, list) else None
     if questions is None:
         from ..tcml import parse_quiz_v2
@@ -262,7 +272,7 @@ def extract_saved_quiz_questions(saved_id: int, user: User = Depends(staff), db:
         db.add(
             BankQuestion(
                 dibuat_oleh=user.id,
-                kategori_id=s.kategori_id,
+                kategori_id=kategori_tujuan,
                 tipe=s.tipe,
                 pertanyaan=q.get("pertanyaan", ""),
                 bobot=q.get("bobot", 1.0),
