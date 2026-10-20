@@ -454,11 +454,20 @@ pre.scratchblocks { background: #fff; border: 1px dashed var(--border); border-r
 .modcard.on { border-color: var(--primary); background: #f2efff; box-shadow: 0 8px 22px rgba(109, 93, 246, .16); }
 .modcard-ikon { font-size: 1.9rem; }
 .modcard-nama { font-weight: 800; font-size: 1.02rem; margin-top: 6px; }
-.modcard-desc { color: var(--muted); font-size: .85rem; margin-top: 3px; }
-.modcard-ft { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
+.modcard-desc { color: var(--muted); font-size: .85rem; margin-top: 3px; min-height: 34px; }
+.modcard-ft { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.btn-contoh { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: .85rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.btn-contoh:hover { border-color: var(--primary); color: #5748d6; }
+.contoh-doc-wrap { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; background: #fff; margin-top: 10px; }
+.contoh-cols { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.cc-kode { background: #17142B; color: #e9e6ff; padding: 10px 12px; }
+.cc-kode pre { margin: 0; white-space: pre-wrap; font-size: .8rem; font-family: var(--font-mono, ui-monospace, monospace); }
+.cc-hasil { padding: 10px 12px; background: #fff; }
+.cc-cap { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; opacity: .75; font-weight: 700; margin-bottom: 6px; }
+.sumbar-fixed { position: fixed; left: 0; right: 0; bottom: 0; background: #17142B; color: #fff; padding: 12px 18px; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; font-size: .92rem; z-index: 40; box-shadow: 0 -6px 20px rgba(23, 20, 43, .18); }
+.sumbar-fixed strong { color: var(--accent, #FFB020); }
 .check-badge { position: absolute; top: -11px; right: -11px; width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; font-weight: 800; opacity: 0; transform: scale(.3) rotate(-30deg); transition: opacity .18s, transform .18s; box-shadow: 0 4px 10px rgba(109, 93, 246, .4); pointer-events: none; }
 .modcard.on .check-badge { opacity: 1; transform: scale(1) rotate(0deg); }
 .tagcode { font-family: var(--font-mono, ui-monospace, monospace); background: #efedfb; border-radius: 6px; padding: 1px 6px; font-size: .8rem; color: #5748d6; }
 .codebox { background: #17142B; color: #e9e6ff; border-radius: 10px; padding: 12px 14px; font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; white-space: pre-wrap; word-break: break-word; margin: 0; }
-.sumbar-inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; background: #f6f4ff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: .92rem; }
-@media (max-width: 700px) { .modcard { width: calc(50% - 7px); min-width: 150px; } }
+@media (max-width: 700px) { .modcard { width: calc(50% - 7px); min-width: 150px; } .contoh-cols { grid-template-columns: 1fr; } }

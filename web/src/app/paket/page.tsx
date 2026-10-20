@@ -443,7 +443,7 @@ export default function PaketPage() {
   const q = cari.trim().toLowerCase();
 
   return (
-    <main className="page">
+    <main className="page" style={{ paddingBottom: 110 }}>
       <AppHeader user={user} />
       <h1 style={{ fontSize: "1.5rem", marginBottom: 4 }}>🧩 Paket Parser</h1>
       <p className="muted" style={{ marginBottom: 16 }}>
@@ -454,6 +454,7 @@ export default function PaketPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {ok && <div className="alert alert-ok">{ok}</div>}
 
+      <form id="packForm" onSubmit={submitPack}>
       <div className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <h3 style={{ margin: 0 }}>{editId ? "Edit Paket" : "Buat Paket Baru"}</h3>
@@ -462,11 +463,13 @@ export default function PaketPage() {
             <button type="button" className={mode === "lanjut" ? "on" : ""} onClick={() => setMode("lanjut")}>🛠️ Mode Lanjutan</button>
           </div>
         </div>
-        <form onSubmit={submitPack} style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10 }}>
           <label className="label">Nama paket</label>
           <input className="input" value={nama} onChange={(e) => setNama(e.target.value)} required placeholder="mis. Paket Kuis Matematika SD" />
           <label className="label">Deskripsi</label>
           <input className="input" value={deskripsi} onChange={(e) => setDeskripsi(e.target.value)} placeholder="opsional" />
+        </div>
+      </div>
 
           {mode === "mudah" ? (
             <>
@@ -493,7 +496,7 @@ export default function PaketPage() {
                         </span>
                         <button
                           type="button"
-                          className="btn btn-sm"
+                          className="btn-contoh"
                           onClick={(e) => {
                             e.stopPropagation();
                             setContohSlug(contohSlug === m.slug ? null : m.slug);
@@ -516,7 +519,7 @@ export default function PaketPage() {
                     Seperti inilah dokumen yang akan dibuat AI bila modul ini dipakai dalam paket.
                   </p>
                   {contohModul.examples.map((ex, i) => (
-                    <div key={i} style={{ marginTop: 10 }}>
+                    <div key={i} className="contoh-doc-wrap">
                       <ContohRender jenis={ex.jenis} konten={ex.konten} />
                     </div>
                   ))}
@@ -531,6 +534,9 @@ export default function PaketPage() {
                 placeholder="🔎 Cari parser… coba: tabel, peringatan, soal"
                 value={cari}
                 onChange={(e) => setCari(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.preventDefault();
+                }}
                 style={{ marginBottom: 10 }}
               />
               {modules.map((m) => {
@@ -577,7 +583,7 @@ export default function PaketPage() {
                             </div>
                             <button
                               type="button"
-                              className="btn btn-sm"
+                              className="btn-contoh"
                               onClick={() => setOpenTag(terbuka ? null : kunci)}
                             >
                               {terbuka ? "Tutup" : "👁 Contoh"}
@@ -585,10 +591,16 @@ export default function PaketPage() {
                           </div>
                           {terbuka && (
                             <div style={{ margin: "10px 0 2px 29px" }}>
-                              <p className="muted" style={{ marginBottom: 4 }}>Ditulis seperti ini:</p>
-                              <pre className="codebox">{t.contoh}</pre>
-                              <p className="muted" style={{ margin: "8px 0 4px" }}>Hasilnya seperti ini:</p>
-                              <ContohRender jenis={t.jenis} konten={t.contoh} />
+                              <div className="contoh-cols">
+                                <div className="cc-kode">
+                                  <div className="cc-cap">Ditulis seperti ini</div>
+                                  <pre>{t.contoh}</pre>
+                                </div>
+                                <div className="cc-hasil">
+                                  <div className="cc-cap">Hasilnya seperti ini</div>
+                                  <ContohRender jenis={t.jenis} konten={t.contoh} />
+                                </div>
+                              </div>
                               <p className="muted" style={{ marginTop: 8 }}>
                                 📤 <strong>Spec untuk AI:</strong> {t.spec}
                               </p>
@@ -648,27 +660,22 @@ export default function PaketPage() {
             </>
           )}
 
-          <div className="sumbar-inline">
-            <span><strong>{selectedSlugs.length}</strong> modul aktif</span>
-            <span>·</span>
-            <span><strong>{totalTags}</strong> parser aktif</span>
-            <span>·</span>
-            <span>spec ±<strong>{(specPreview?.karakter ?? 0).toLocaleString("id-ID")}</strong> karakter</span>
-            <span>·</span>
-            <span>{isClassic ? "pilihan modul utuh" : "🎛️ pilihan per parser"}</span>
-          </div>
+      </form>
 
-          <div className="row-actions" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" type="submit" disabled={selectedSlugs.length === 0}>
-              {editId ? "💾 Simpan Perubahan" : "➕ Buat Paket"}
-            </button>
-            {editId && (
-              <button className="btn" type="button" onClick={resetForm}>
-                Batal Edit
-              </button>
-            )}
-          </div>
-        </form>
+      <div className="sumbar-fixed">
+        <span><strong>{selectedSlugs.length}</strong> modul aktif</span>
+        <span>·</span>
+        <span><strong>{totalTags}</strong> parser aktif</span>
+        <span>·</span>
+        <span>spec ±<strong>{(specPreview?.karakter ?? 0).toLocaleString("id-ID")}</strong> karakter</span>
+        <span>·</span>
+        <span>{isClassic ? "pilihan modul utuh" : "🎛️ pilihan per parser"}</span>
+        {editId && (
+          <button className="btn btn-sm" type="button" onClick={resetForm}>Batal Edit</button>
+        )}
+        <button className="btn btn-primary" type="submit" form="packForm" disabled={selectedSlugs.length === 0}>
+          {editId ? "💾 Simpan Perubahan" : "➕ Buat Paket"}
+        </button>
       </div>
 
       <h3 style={{ margin: "18px 0 10px" }}>Paket Saya ({packs.length})</h3>

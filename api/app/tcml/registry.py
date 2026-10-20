@@ -54,22 +54,25 @@ MODULES = {
         "nama": "Tabel & Dataset",
         "roots": [],
         "tags": ["DATASET", "TABLE"],
-        "deskripsi": "Menampilkan data tabular: dataset (dari teks CSV) dan tabel manual di dalam materi.",
+        "deskripsi": "Menampilkan data dalam bentuk tabel di dalam materi (baris pertama = judul kolom, sel dipisah tanda |).",
         "spec": (
-            "- [DATASET] baris pertama [TITLE]Judul dataset[/TITLE], baris berikutnya data CSV "
-            "(baris pertama CSV = header kolom, pemisah koma). [/DATASET]\n"
-            "- [TABLE] sama seperti DATASET: [TITLE] opsional lalu baris-baris CSV. [/TABLE]"
+            "- [DATASET] tabel data: baris pertama = judul kolom, tiap sel dipisah tanda | (pipe), satu baris data per baris teks. [/DATASET]\n"
+            "- [TABLE] sama seperti DATASET: baris pertama = judul kolom, sel dipisah tanda |. [/TABLE]"
         ),
         "contoh": [
             {
-                "judul": "Dataset nilai",
+                "judul": "Tabel nilai di dalam materi",
                 "konten": (
-                    "[DATASET]\n"
+                    "[MATERIAL]\n"
                     "[TITLE]Nilai Ulangan Kelas 5A[/TITLE]\n"
-                    "Nama,Nilai\n"
-                    "Andi,85\n"
-                    "Bela,92\n"
-                    "[/DATASET]"
+                    "[PARAGRAPH]Berikut rekap nilai ulangan matematika minggu ini.[/PARAGRAPH]\n"
+                    "[DATASET]\n"
+                    "Nama | Nilai | Keterangan\n"
+                    "Andi | 85 | Tuntas\n"
+                    "Bela | 92 | Tuntas\n"
+                    "Citra | 72 | Remedial\n"
+                    "[/DATASET]\n"
+                    "[/MATERIAL]"
                 ),
             }
         ],
@@ -85,13 +88,17 @@ MODULES = {
         ),
         "contoh": [
             {
-                "judul": "Formula dan kode",
+                "judul": "Formula dan kode di dalam materi",
                 "konten": (
+                    "[MATERIAL]\n"
+                    "[TITLE]Keliling Persegi[/TITLE]\n"
+                    "[PARAGRAPH]Keliling persegi dihitung dengan rumus berikut.[/PARAGRAPH]\n"
                     "[FORMULA]Keliling persegi = 4 x sisi[/FORMULA]\n"
                     "[CODE]\n"
                     "for i in range(3):\n"
                     "    print(i)\n"
-                    "[/CODE]"
+                    "[/CODE]\n"
+                    "[/MATERIAL]"
                 ),
             }
         ],

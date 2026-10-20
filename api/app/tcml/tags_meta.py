@@ -129,16 +129,16 @@ TAGS_META = {
     },
     "tabel-data": {
         "DATASET": {
-            "nama": "Dataset (CSV)", "desc": "Data mentah CSV yang tampil sebagai tabel data.",
-            "spec": "- [DATASET] baris pertama [TITLE]Judul dataset[/TITLE], baris berikutnya data CSV (baris pertama CSV = header kolom, pemisah koma). [/DATASET]",
+            "nama": "Dataset (Tabel Data)", "desc": "Data yang tampil sebagai tabel (sel dipisah tanda |).",
+            "spec": "- [DATASET] tabel data: baris pertama = judul kolom, tiap sel dipisah tanda | (pipe), satu baris data per baris teks. [/DATASET]",
             "jenis": "material",
-            "contoh": "[DATASET]\n[TITLE]Nilai Ulangan Kelas 5A[/TITLE]\nNama,Nilai\nAndi,85\nBela,92\n[/DATASET]",
+            "contoh": "[MATERIAL]\n[TITLE]Data Nilai Ulangan[/TITLE]\n[DATASET]\nNama | Nilai\nAndi | 85\nBela | 92\n[/DATASET]\n[/MATERIAL]",
         },
         "TABLE": {
-            "nama": "Tabel Manual", "desc": "Tabel yang ditulis baris per baris (format CSV).",
-            "spec": "- [TABLE] sama seperti DATASET: [TITLE] opsional lalu baris-baris CSV. [/TABLE]",
+            "nama": "Tabel Manual", "desc": "Tabel yang ditulis baris per baris (sel dipisah tanda |).",
+            "spec": "- [TABLE] sama seperti DATASET: baris pertama = judul kolom, sel dipisah tanda |. [/TABLE]",
             "jenis": "material",
-            "contoh": "[TABLE]\n[TITLE]Jadwal Pelajaran[/TITLE]\nHari,Pelajaran\nSenin,Matematika\nSelasa,IPA\n[/TABLE]",
+            "contoh": "[MATERIAL]\n[TITLE]Jadwal Pelajaran[/TITLE]\n[TABLE]\nHari | Pelajaran\nSenin | Matematika\nSelasa | IPA\n[/TABLE]\n[/MATERIAL]",
         },
     },
     "formula-kode": {
@@ -146,13 +146,13 @@ TAGS_META = {
             "nama": "Rumus", "desc": "Rumus matematika/sains di dalam materi.",
             "spec": "- [FORMULA]Rumus dalam teks biasa, mis. Luas = p x l[/FORMULA]",
             "jenis": "material",
-            "contoh": "[FORMULA]Keliling persegi = 4 x sisi[/FORMULA]",
+            "contoh": "[MATERIAL]\n[TITLE]Keliling Persegi[/TITLE]\n[FORMULA]Keliling persegi = 4 x sisi[/FORMULA]\n[/MATERIAL]",
         },
         "CODE": {
             "nama": "Potongan Kode", "desc": "Kode program apa adanya (indentasi dipertahankan).",
             "spec": "- [CODE]Potongan kode apa adanya (indentasi dipertahankan).[/CODE]",
             "jenis": "material",
-            "contoh": "[CODE]\nfor i in range(3):\n    print(i)\n[/CODE]",
+            "contoh": "[MATERIAL]\n[TITLE]Perulangan Sederhana[/TITLE]\n[CODE]\nfor i in range(3):\n    print(i)\n[/CODE]\n[/MATERIAL]",
         },
     },
     "latihan": {

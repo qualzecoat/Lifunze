@@ -40,10 +40,38 @@ def test_semua_tag_punya_metadata_dan_contoh_valid():
             if tm["jenis"] == "material":
                 res = parse_material(doc)
                 assert res["success"], f"contoh {slug}:{tag} gagal parse: {res['errors']}"
+                # Contoh harus TER-RENDER: tag-nya tidak boleh tersisa sebagai
+                # teks mentah di HTML (kasus fragmen tanpa root [MATERIAL]).
+                assert f"[{tag}]" not in res["content"], (
+                    f"contoh {slug}:{tag} tidak ter-render (tag tersisa sebagai teks)"
+                )
             else:
                 tipe = "pilihan_ganda" if tm["jenis"] == "kuis-pg" else "teks"
                 res = parse_quiz_v2(doc, expected_type=tipe)
                 assert res["success"], f"contoh {slug}:{tag} gagal parse: {res['errors']}"
+
+
+def test_contoh_modul_ter_render():
+    """Contoh per modul (yang tampil di Mode Mudah) harus ter-render nyata."""
+    for slug, mod in MODULES.items():
+        for ex in mod["contoh"]:
+            konten = ex["konten"]
+            if "[QUIZ]" in konten:
+                continue  # contoh kuis dirender jalur kuis, tercakup test lain
+            res = parse_material(konten)
+            assert res["success"], f"contoh modul {slug} gagal parse: {res['errors']}"
+            for tag in mod["tags"]:
+                assert f"[{tag}]" not in res["content"], (
+                    f"contoh modul {slug}: tag [{tag}] tidak ter-render"
+                )
+
+
+def test_tabel_renders_multi_kolom():
+    doc = MODULES["tabel-data"]["tags_meta"]["DATASET"]["contoh"]
+    html = parse_material(doc)["content"]
+    assert '<table class="tc-table">' in html
+    assert "<th>Nama</th>" in html and "<th>Nilai</th>" in html
+    assert "<td>85</td>" in html
 
 
 def test_modules_endpoint_memuat_tags_meta(client):
