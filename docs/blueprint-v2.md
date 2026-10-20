@@ -1,6 +1,6 @@
 # Blueprint Arsitektur — Tenebris-Class v2
 
-> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20). **Fase 0 selesai** 2026-10-20 (lihat PROJECT.md untuk status per fase).
+> **Status:** Blueprint v2 — keputusan utama TERKUNCI (2026-10-20). **Fase 0–4 selesai** 2026-10-20 (lihat PROJECT.md untuk status per fase).
 > **Referensi v1:** https://github.com/jeruk125/Tenebris-Class (Flask + SQLite, monolit)
 > **Domain deploy:** `lifunze.aditiamh.my.id`
 > **Tujuan:** Membangun ulang Tenebris-Class dengan stack modern dan ruang fitur yang lebih besar, tanpa kehilangan jiwa v1: **TCML** (bahasa markup konten sendiri), **Bank Materi & Kuis**, dan konten yang bisa **digenerate AI langsung di dalam LMS**.
@@ -182,6 +182,9 @@ saved_categories : id, nama, dibuat_oleh
 saved_materials  : id, judul, teks_mentah, dibuat_oleh, kategori_id
 saved_quizzes    : id, judul, tipe, teks_mentah, snapshot ★ (JSONB struktur soal —
                    import tidak lagi bergantung pada parse ulang teks mentah)
+bank_questions ★ : id, dibuat_oleh, kategori_id, tipe, pertanyaan, bobot,
+                   options (JSON — khusus PG), jawaban_referensi (khusus esai)
+                   [Fase 4: bank soal per butir untuk menyusun kuis acak]
 ```
 
 ### 5.6 Paket Parser & generate AI ★ (baru — Bagian 9 & 10)
@@ -525,7 +528,7 @@ Seluruh usulan berikut **disetujui Qualze 2026-10-20** dan sudah didistribusikan
 | **1 — Akun, RBAC & Pengaturan AI** | Auth 1 portal; provisioning guru/siswa + `created_by` + bulk CSV + audit log + soft-delete; panel kelola user; **menu Pengaturan AI per akun** (base URL, key terenkripsi, fetch model, tes koneksi) | ✅ Selesai 2026-10-20 |
 | **2 — Pembelajaran inti** | Subject → Meeting → Material (editor TCML + preview + cache render), upload file, enrollment, dashboard 3 role, **arsip mapel** (fitur 9) | ✅ Selesai 2026-10-20 |
 | **3 — Kuis v2** | Engine kuis baru (questions/options/attempts ternormalisasi), **jendela waktu & durasi** (fitur 1), **bobot & multi-jawaban-benar** (fitur 6), editor + endpoint parse, penilaian esai, **export nilai** (fitur 7) | ✅ Selesai 2026-10-20 |
-| **4 — Bank** | Bank materi & kuis + kategori + snapshot JSONB + copy antar guru; **bank soal & susun kuis acak** (fitur 5) + acak soal/opsi saat pengerjaan | Bank fungsional penuh — CATATAN: bank dasar (kategori, simpan materi/kuis, pakai materi dari bank) sudah selesai lebih awal di Fase 2; sisa fase ini: copy antar guru + bank soal/kuis acak |
+| **4 — Bank** | Bank materi & kuis + kategori + snapshot JSONB + copy antar guru; **bank soal & susun kuis acak** (fitur 5) + acak soal/opsi saat pengerjaan | ✅ Selesai 2026-10-20 (bank dasar lebih awal di Fase 2; acak per-attempt di Fase 3; copy antar guru + bank soal di Fase 4) |
 | **5 — Paket Parser & Generate AI** | Registry modul tag (spesifikasi & contoh di DB), **menu Paket Parser** (susun modul + pilih contoh + pratinjau prompt + **ekspor .md**), paket bawaan (Mapel Umum, Spreadsheet, Pemrograman, Kuis PG, Kuis Esai, Kelas Lengkap), **generate di LMS** (job async, bundle multi-dokumen, validasi 2 lapis, self-repair, draf → publish), **impor konten eksternal** | Fitur pembeda utama v2 live |
 | **6 — Pengalaman belajar** | **Progress belajar** (fitur 2), **pengumuman mapel** (fitur 3), **notifikasi in-app** (fitur 4), **tugas file `[PROJECT]` + penilaian rubrik** (fitur 8), **mode hemat kuota** (fitur 10) | LMS terasa "besar" |
 | **7 — Paket khusus** | Modul tag **Scratch** (renderer blok/sprite/stage + spesifikasi + contoh) + paket Scratch; pendalaman paket Mapel Umum | Parser tidak lagi bias pemrograman |

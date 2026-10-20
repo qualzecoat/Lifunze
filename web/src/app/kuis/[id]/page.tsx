@@ -395,12 +395,26 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
     window.history.back();
   }
 
+  async function extract() {
+    setErr("");
+    try {
+      const res = await apiFetch<{ jumlah_diekstrak: number }>(`/api/v1/quizzes/${quiz.id}/extract-questions`, {
+        method: "POST",
+        body: {},
+      });
+      setMsg(`${res.jumlah_diekstrak} soal tersimpan ke Bank Soal.`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Gagal mengekstrak soal.");
+    }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ fontSize: "1.5rem" }}>🧪 {quiz.judul}</h1>
         <span className="row-actions">
           <Link className="btn btn-sm" href={`/editor/kuis?quiz=${quiz.id}`}>✏️ Edit</Link>
+          <button className="btn btn-sm" onClick={extract}>📥 Ekstrak ke Bank Soal</button>
           <a className="btn btn-sm" href={`${API_BASE}/api/v1/quizzes/${quiz.id}/export?format=csv`}>⬇️ CSV</a>
           <a className="btn btn-sm" href={`${API_BASE}/api/v1/quizzes/${quiz.id}/export?format=xlsx`}>⬇️ XLSX</a>
           <button className="btn btn-sm btn-danger" onClick={remove}>Hapus</button>

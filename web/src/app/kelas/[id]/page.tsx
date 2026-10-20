@@ -66,6 +66,13 @@ export default function KelasDetailPage() {
   const [bankFor, setBankFor] = useState<number | null>(null);
   const [bankQuizzes, setBankQuizzes] = useState<SavedQuiz[]>([]);
   const [bankQuizFor, setBankQuizFor] = useState<number | null>(null);
+  const [composeFor, setComposeFor] = useState<number | null>(null);
+  const [cJudul, setCJudul] = useState("");
+  const [cJumlah, setCJumlah] = useState("5");
+  const [cTipe, setCTipe] = useState<"pilihan_ganda" | "teks">("pilihan_ganda");
+  const [cKategori, setCKategori] = useState("");
+  const [cDurasi, setCDurasi] = useState("");
+  const [cCategories, setCCategories] = useState<{ id: number; nama: string }[]>([]);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [newMeeting, setNewMeeting] = useState({ judul: "", tanggal: "", deskripsi: "" });
@@ -195,6 +202,40 @@ export default function KelasDetailPage() {
     }
   }
 
+  async function openCompose(meetingId: number) {
+    if (composeFor === meetingId) {
+      setComposeFor(null);
+      return;
+    }
+    try {
+      setCCategories(await apiFetch<{ id: number; nama: string }[]>("/api/v1/bank/categories"));
+      setComposeFor(meetingId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuka panel susun kuis.");
+    }
+  }
+
+  async function submitCompose(meetingId: number) {
+    setError("");
+    try {
+      const q = await apiFetch<{ id: number }>(`/api/v1/meetings/${meetingId}/quizzes/from-bank-questions`, {
+        method: "POST",
+        body: {
+          judul: cJudul,
+          jumlah: Number(cJumlah),
+          tipe: cTipe,
+          kategori_id: cKategori ? Number(cKategori) : null,
+          durasi_menit: cDurasi ? Number(cDurasi) : null,
+          acak_soal: true,
+          acak_opsi: true,
+        },
+      });
+      router.push(`/kuis/${q.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyusun kuis.");
+    }
+  }
+
   async function loadCandidates() {
     try {
       const all = await apiFetch<Member[]>("/api/v1/users/students");
@@ -307,6 +348,7 @@ export default function KelasDetailPage() {
                 <button className="btn btn-sm" onClick={() => openBank(m.id)}>📚 Ambil dari Bank</button>
                 <Link className="btn btn-sm btn-primary" href={`/editor/kuis?meeting=${m.id}&kelas=${sid}`}>➕ Kuis Baru</Link>
                 <button className="btn btn-sm" onClick={() => openBankQuiz(m.id)}>🧪 Kuis dari Bank</button>
+                <button className="btn btn-sm" onClick={() => openCompose(m.id)}>🎲 Susun dari Bank Soal</button>
               </div>
               {bankFor === m.id && (
                 <div style={{ marginTop: 10 }}>
@@ -328,6 +370,42 @@ export default function KelasDetailPage() {
                       <button className="btn btn-sm" onClick={() => useBankQuiz(m.id, b.id)}>Pakai</button>
                     </div>
                   ))}
+                </div>
+              )}
+              {composeFor === m.id && (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 }}>
+                  <div>
+                    <label className="label">Judul kuis</label>
+                    <input className="input" value={cJudul} onChange={(e) => setCJudul(e.target.value)} placeholder="Ulangan Acak 1" />
+                  </div>
+                  <div>
+                    <label className="label">Jumlah soal</label>
+                    <input className="input" type="number" min={1} value={cJumlah} onChange={(e) => setCJumlah(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Tipe soal</label>
+                    <select className="select" value={cTipe} onChange={(e) => setCTipe(e.target.value as "pilihan_ganda" | "teks")}>
+                      <option value="pilihan_ganda">Pilihan Ganda</option>
+                      <option value="teks">Esai</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Kategori bank</label>
+                    <select className="select" value={cKategori} onChange={(e) => setCKategori(e.target.value)}>
+                      <option value="">Semua kategori</option>
+                      {cCategories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nama}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Durasi (menit)</label>
+                    <input className="input" type="number" min={1} value={cDurasi} onChange={(e) => setCDurasi(e.target.value)} placeholder="opsional" />
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end" }}>
+                    <button className="btn btn-primary" disabled={!cJudul.trim()} onClick={() => submitCompose(m.id)}>🎲 Susun Kuis</button>
+                  </div>
+                  <p className="muted" style={{ gridColumn: "1 / -1" }}>Soal ditarik acak dari bank soal Anda; urutan soal & opsi ikut diacak per siswa.</p>
                 </div>
               )}
             </div>

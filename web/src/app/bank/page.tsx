@@ -22,6 +22,21 @@ interface SavedQuiz {
   kategori_id: number | null;
   jumlah_soal: number;
 }
+interface BankQuestion {
+  id: number;
+  tipe: string;
+  pertanyaan: string;
+  bobot: number;
+  options: { label: string; teks: string; is_correct: boolean }[] | null;
+  jawaban_referensi: string | null;
+  kategori_id: number | null;
+}
+interface ExploreMaterial extends SavedMaterial {
+  pemilik: { username: string; nama_lengkap: string | null };
+}
+interface ExploreQuiz extends SavedQuiz {
+  pemilik: { username: string; nama_lengkap: string | null };
+}
 
 export default function BankPage() {
   const router = useRouter();
@@ -29,15 +44,31 @@ export default function BankPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [materials, setMaterials] = useState<SavedMaterial[]>([]);
   const [quizzes, setQuizzes] = useState<SavedQuiz[]>([]);
+  const [questions, setQuestions] = useState<BankQuestion[]>([]);
+  const [exploreMats, setExploreMats] = useState<ExploreMaterial[]>([]);
+  const [exploreQuizzes, setExploreQuizzes] = useState<ExploreQuiz[]>([]);
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  // form soal baru
+  const [qTipe, setQTipe] = useState<"pilihan_ganda" | "teks">("pilihan_ganda");
+  const [qPertanyaan, setQPertanyaan] = useState("");
+  const [qBobot, setQBobot] = useState("1");
+  const [qKategori, setQKategori] = useState("");
+  const [qRef, setQRef] = useState("");
+  const [qOptions, setQOptions] = useState<{ teks: string; benar: boolean }[]>([
+    { teks: "", benar: false },
+    { teks: "", benar: true },
+  ]);
 
   const load = useCallback(async () => {
     try {
       setCategories(await apiFetch<Category[]>("/api/v1/bank/categories"));
       setMaterials(await apiFetch<SavedMaterial[]>("/api/v1/bank/materials"));
       setQuizzes(await apiFetch<SavedQuiz[]>("/api/v1/bank/quizzes"));
+      setQuestions(await apiFetch<BankQuestion[]>("/api/v1/bank/questions"));
+      setExploreMats(await apiFetch<ExploreMaterial[]>("/api/v1/bank/explore/materials"));
+      setExploreQuizzes(await apiFetch<ExploreQuiz[]>("/api/v1/bank/explore/quizzes"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat bank.");
     }
@@ -82,6 +113,67 @@ export default function BankPage() {
     await apiFetch(`/api/v1/bank/quizzes/${q.id}`, { method: "DELETE" });
     setOk("Kuis bank dihapus.");
     load();
+  }
+
+  async function addQuestion(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      await apiFetch("/api/v1/bank/questions", {
+        method: "POST",
+        body: {
+          tipe: qTipe,
+          pertanyaan: qPertanyaan,
+          bobot: Number(qBobot) || 1,
+          kategori_id: qKategori ? Number(qKategori) : null,
+          options:
+            qTipe === "pilihan_ganda"
+              ? qOptions.map((o, i) => ({
+                  label: String.fromCharCode(65 + i),
+                  teks: o.teks,
+                  is_correct: o.benar,
+                }))
+              : null,
+          jawaban_referensi: qTipe === "teks" ? qRef || null : null,
+        },
+      });
+      setQPertanyaan("");
+      setQRef("");
+      setQOptions([
+        { teks: "", benar: false },
+        { teks: "", benar: true },
+      ]);
+      setOk("Soal ditambahkan ke bank soal.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menambah soal.");
+    }
+  }
+
+  async function deleteQuestion(q: BankQuestion) {
+    if (!window.confirm("Hapus soal ini dari bank soal?")) return;
+    await apiFetch(`/api/v1/bank/questions/${q.id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function copyMaterial(id: number) {
+    try {
+      await apiFetch(`/api/v1/bank/materials/${id}/copy`, { method: "POST" });
+      setOk("Materi disalin ke bank Anda.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyalin materi.");
+    }
+  }
+
+  async function copyQuiz(id: number) {
+    try {
+      await apiFetch(`/api/v1/bank/quizzes/${id}/copy`, { method: "POST" });
+      setOk("Kuis disalin ke bank Anda.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyalin kuis.");
+    }
   }
 
   return (
@@ -153,6 +245,128 @@ export default function BankPage() {
             {quizzes.length === 0 && <tr><td colSpan={5} className="muted">Belum ada kuis di bank. Kuis dibuat dari pertemuan (modul kuis) lalu bisa disimpan ke bank.</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3>🎲 Bank Soal ({questions.length})</h3>
+        <p className="muted" style={{ margin: "6px 0 10px" }}>
+          Soal lepas per butir. Susun kuis acak dari bank ini lewat tombol “Susun dari Bank Soal” di halaman kelas,
+          atau ekstrak soal dari kuis yang sudah ada (halaman kuis → Ekstrak Soal).
+        </p>
+        {questions.map((q) => (
+          <div key={q.id} style={{ padding: "7px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <div>
+              <strong>{q.pertanyaan}</strong>{" "}
+              <span className="badge">{q.tipe === "pilihan_ganda" ? "PG" : "Esai"}</span>{" "}
+              <span className="badge">bobot {q.bobot}</span>{" "}
+              <span className="muted">{catName(q.kategori_id)}</span>
+              {q.options && (
+                <div className="muted">
+                  {q.options.map((o) => (
+                    <span key={o.label} style={{ marginRight: 10, color: o.is_correct ? "var(--ok)" : undefined }}>
+                      {o.is_correct ? "✅" : "▫️"} {o.label}. {o.teks}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {q.jawaban_referensi && <div className="muted">Referensi: {q.jawaban_referensi}</div>}
+            </div>
+            <button className="btn btn-sm btn-danger" onClick={() => deleteQuestion(q)}>Hapus</button>
+          </div>
+        ))}
+        {questions.length === 0 && <p className="muted">Belum ada soal di bank soal.</p>}
+
+        <form onSubmit={addQuestion} style={{ marginTop: 14 }}>
+          <h4>Tambah soal baru</h4>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginTop: 8 }}>
+            <div>
+              <label className="label">Tipe</label>
+              <select className="select" value={qTipe} onChange={(e) => setQTipe(e.target.value as "pilihan_ganda" | "teks")}>
+                <option value="pilihan_ganda">Pilihan Ganda</option>
+                <option value="teks">Esai</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Bobot</label>
+              <input className="input" type="number" step="0.5" min="0.5" value={qBobot} onChange={(e) => setQBobot(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Kategori</label>
+              <select className="select" value={qKategori} onChange={(e) => setQKategori(e.target.value)}>
+                <option value="">— tanpa kategori —</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nama}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <label className="label">Pertanyaan</label>
+          <textarea className="textarea" rows={2} value={qPertanyaan} onChange={(e) => setQPertanyaan(e.target.value)} required />
+          {qTipe === "pilihan_ganda" ? (
+            <div style={{ marginTop: 8 }}>
+              {qOptions.map((o, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                  <strong>{String.fromCharCode(65 + i)}.</strong>
+                  <input
+                    className="input"
+                    placeholder={`Teks opsi ${String.fromCharCode(65 + i)}`}
+                    value={o.teks}
+                    onChange={(e) => {
+                      const next = [...qOptions];
+                      next[i] = { ...next[i], teks: e.target.value };
+                      setQOptions(next);
+                    }}
+                    required
+                  />
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={o.benar}
+                      onChange={(e) => {
+                        const next = [...qOptions];
+                        next[i] = { ...next[i], benar: e.target.checked };
+                        setQOptions(next);
+                      }}
+                    />{" "}
+                    Benar
+                  </label>
+                  {qOptions.length > 2 && (
+                    <button type="button" className="btn btn-sm" onClick={() => setQOptions(qOptions.filter((_, x) => x !== i))}>✕</button>
+                  )}
+                </div>
+              ))}
+              {qOptions.length < 6 && (
+                <button type="button" className="btn btn-sm" onClick={() => setQOptions([...qOptions, { teks: "", benar: false }])}>➕ Opsi</button>
+              )}
+            </div>
+          ) : (
+            <div style={{ marginTop: 8 }}>
+              <label className="label">Jawaban referensi (pedoman penilaian)</label>
+              <textarea className="textarea" rows={2} value={qRef} onChange={(e) => setQRef(e.target.value)} />
+            </div>
+          )}
+          <button className="btn btn-primary" type="submit" style={{ marginTop: 10 }}>➕ Tambah Soal</button>
+        </form>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3>🔍 Jelajahi Bank Guru Lain</h3>
+        <p className="muted" style={{ margin: "6px 0 10px" }}>Salin materi/kuis guru lain ke bank Anda — aslinya tidak berubah.</p>
+        {exploreMats.map((m) => (
+          <div key={`m-${m.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+            <span>📄 {m.judul} <span className="muted">— oleh {m.pemilik.nama_lengkap ?? m.pemilik.username}</span></span>
+            <button className="btn btn-sm" onClick={() => copyMaterial(m.id)}>📥 Salin</button>
+          </div>
+        ))}
+        {exploreQuizzes.map((q) => (
+          <div key={`q-${q.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+            <span>🧪 {q.judul} <span className="muted">({q.jumlah_soal} soal) — oleh {q.pemilik.nama_lengkap ?? q.pemilik.username}</span></span>
+            <button className="btn btn-sm" onClick={() => copyQuiz(q.id)}>📥 Salin</button>
+          </div>
+        ))}
+        {exploreMats.length === 0 && exploreQuizzes.length === 0 && (
+          <p className="muted">Belum ada bank dari guru lain.</p>
+        )}
       </div>
     </main>
   );

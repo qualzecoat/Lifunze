@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_csrf, require_roles
-from ..models import SavedCategory, SavedMaterial, SavedQuiz, User
+from ..models import BankQuestion, SavedCategory, SavedMaterial, SavedQuiz, User
 from ..tcml import parse_material
 from ..tcml.quiz import parse_quiz_v2
 
@@ -63,6 +63,9 @@ def delete_category(category_id: int, user: User = Depends(staff), db: Session =
     )
     db.query(SavedQuiz).filter(SavedQuiz.kategori_id == c.id).update(
         {SavedQuiz.kategori_id: None}, synchronize_session=False
+    )
+    db.query(BankQuestion).filter(BankQuestion.kategori_id == c.id).update(
+        {BankQuestion.kategori_id: None}, synchronize_session=False
     )
     db.delete(c)
     db.commit()
@@ -217,5 +220,186 @@ def delete_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = 
     if s is None or s.dibuat_oleh != user.id:
         raise HTTPException(status_code=404, detail="Kuis bank tidak ditemukan.")
     db.delete(s)
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------- jelajahi & salin bank guru lain
+def _owner_info(db: Session, user_id: int) -> dict:
+    u = db.get(User, user_id)
+    if u is None:
+        return {"id": user_id, "username": "?", "nama_lengkap": None}
+    return {"id": u.id, "username": u.username, "nama_lengkap": u.nama_lengkap}
+
+
+@router.get("/explore/materials")
+def explore_materials(user: User = Depends(staff), db: Session = Depends(get_db)):
+    rows = (
+        db.query(SavedMaterial)
+        .filter(SavedMaterial.dibuat_oleh != user.id)
+        .order_by(SavedMaterial.judul)
+        .all()
+    )
+    return [{**saved_material_out(s), "pemilik": _owner_info(db, s.dibuat_oleh)} for s in rows]
+
+
+@router.get("/explore/quizzes")
+def explore_quizzes(user: User = Depends(staff), db: Session = Depends(get_db)):
+    rows = (
+        db.query(SavedQuiz)
+        .filter(SavedQuiz.dibuat_oleh != user.id)
+        .order_by(SavedQuiz.judul)
+        .all()
+    )
+    return [{**saved_quiz_out(s), "pemilik": _owner_info(db, s.dibuat_oleh)} for s in rows]
+
+
+@router.post("/materials/{saved_id}/copy", status_code=201, dependencies=[Depends(require_csrf)])
+def copy_saved_material(saved_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
+    src = db.get(SavedMaterial, saved_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail="Materi bank tidak ditemukan.")
+    s = SavedMaterial(
+        judul=src.judul,
+        teks_mentah=src.teks_mentah,
+        dibuat_oleh=user.id,
+        kategori_id=None,  # kategori bersifat personal; salinan mulai tanpa kategori
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return saved_material_out(s)
+
+
+@router.post("/quizzes/{saved_id}/copy", status_code=201, dependencies=[Depends(require_csrf)])
+def copy_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
+    src = db.get(SavedQuiz, saved_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail="Kuis bank tidak ditemukan.")
+    s = SavedQuiz(
+        judul=src.judul,
+        tipe=src.tipe,
+        teks_mentah=src.teks_mentah,
+        snapshot=list(src.snapshot) if isinstance(src.snapshot, list) else src.snapshot,
+        dibuat_oleh=user.id,
+        kategori_id=None,
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return saved_quiz_out(s)
+
+
+# ----------------------------------------------------------------- bank soal
+class BankQuestionIn(BaseModel):
+    tipe: str = Field(pattern="^(pilihan_ganda|teks)$")
+    pertanyaan: str = Field(min_length=1)
+    bobot: float = Field(default=1.0, gt=0)
+    options: Optional[list] = None  # [{label, teks, is_correct}] untuk PG
+    jawaban_referensi: Optional[str] = None
+    kategori_id: Optional[int] = None
+
+
+def bank_question_out(q: BankQuestion) -> dict:
+    return {
+        "id": q.id,
+        "tipe": q.tipe,
+        "pertanyaan": q.pertanyaan,
+        "bobot": q.bobot,
+        "options": q.options,
+        "jawaban_referensi": q.jawaban_referensi,
+        "kategori_id": q.kategori_id,
+    }
+
+
+def _validate_bank_question(body: BankQuestionIn) -> list:
+    """Normalisasi & validasi opsi PG; kembalikan daftar opsi bersih."""
+    if body.tipe == "teks":
+        return []
+    options = body.options or []
+    cleaned = []
+    seen_labels = set()
+    for o in options:
+        label = str(o.get("label", "")).strip().upper()
+        teks = str(o.get("teks", "")).strip()
+        if not label or not teks:
+            continue
+        if label in seen_labels:
+            raise HTTPException(status_code=400, detail=f"Label opsi duplikat: {label}.")
+        seen_labels.add(label)
+        cleaned.append({"label": label, "teks": teks, "is_correct": bool(o.get("is_correct"))})
+    if len(cleaned) < 2:
+        raise HTTPException(status_code=400, detail="Soal pilihan ganda butuh minimal 2 opsi.")
+    if not any(o["is_correct"] for o in cleaned):
+        raise HTTPException(status_code=400, detail="Soal pilihan ganda butuh minimal 1 jawaban benar.")
+    return cleaned
+
+
+def _own_bank_question(db: Session, user: User, qid: int) -> BankQuestion:
+    q = db.get(BankQuestion, qid)
+    if q is None or q.dibuat_oleh != user.id:
+        raise HTTPException(status_code=404, detail="Soal bank tidak ditemukan.")
+    return q
+
+
+@router.get("/questions")
+def list_bank_questions(
+    kategori_id: Optional[int] = Query(default=None),
+    tipe: Optional[str] = Query(default=None),
+    user: User = Depends(staff),
+    db: Session = Depends(get_db),
+):
+    q = db.query(BankQuestion).filter(BankQuestion.dibuat_oleh == user.id)
+    if kategori_id is not None:
+        q = q.filter(BankQuestion.kategori_id == kategori_id)
+    if tipe is not None:
+        q = q.filter(BankQuestion.tipe == tipe)
+    return [bank_question_out(x) for x in q.order_by(BankQuestion.id).all()]
+
+
+@router.post("/questions", status_code=201, dependencies=[Depends(require_csrf)])
+def create_bank_question(body: BankQuestionIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    options = _validate_bank_question(body)
+    _validate_category(db, user, body.kategori_id)
+    q = BankQuestion(
+        dibuat_oleh=user.id,
+        kategori_id=body.kategori_id,
+        tipe=body.tipe,
+        pertanyaan=body.pertanyaan.strip(),
+        bobot=body.bobot,
+        options=options if body.tipe == "pilihan_ganda" else None,
+        jawaban_referensi=body.jawaban_referensi if body.tipe == "teks" else None,
+    )
+    db.add(q)
+    db.commit()
+    db.refresh(q)
+    return bank_question_out(q)
+
+
+@router.patch("/questions/{question_id}", dependencies=[Depends(require_csrf)])
+def update_bank_question(
+    question_id: int,
+    body: BankQuestionIn,
+    user: User = Depends(staff),
+    db: Session = Depends(get_db),
+):
+    q = _own_bank_question(db, user, question_id)
+    options = _validate_bank_question(body)
+    _validate_category(db, user, body.kategori_id)
+    q.tipe = body.tipe
+    q.pertanyaan = body.pertanyaan.strip()
+    q.bobot = body.bobot
+    q.options = options if body.tipe == "pilihan_ganda" else None
+    q.jawaban_referensi = body.jawaban_referensi if body.tipe == "teks" else None
+    q.kategori_id = body.kategori_id
+    db.commit()
+    db.refresh(q)
+    return bank_question_out(q)
+
+
+@router.delete("/questions/{question_id}", dependencies=[Depends(require_csrf)])
+def delete_bank_question(question_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
+    q = _own_bank_question(db, user, question_id)
+    db.delete(q)
     db.commit()
     return {"ok": True}

@@ -26,6 +26,7 @@ from ..db import get_db
 from ..deps import get_current_user, require_csrf
 from ..models import (
     AttemptAnswer,
+    BankQuestion,
     Question,
     QuestionOption,
     Quiz,
@@ -34,6 +35,7 @@ from ..models import (
     User,
 )
 from ..tcml.quiz import parse_quiz_v2
+from .bank import _validate_category
 
 router = APIRouter(tags=["quizzes"])
 
@@ -771,3 +773,146 @@ def export_results(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'},
     )
+
+
+# ------------------------------------------------------- bank soal (Fase 4)
+def questions_to_tcml(tipe: str, questions: list[dict]) -> str:
+    """Bangun teks TCML kanonis dari data soal ternormalisasi.
+
+    Hasilnya harus selalu lolos parse_quiz_v2 — kuis hasil susunan dari bank
+    soal tetap punya teks mentah yang bisa diedit guru di editor TCML.
+    """
+    lines = ["[QUIZ]", f"[TYPE]{'pilihan_ganda' if tipe == 'pilihan_ganda' else 'essay'}[/TYPE]"]
+    for i, q in enumerate(questions, start=1):
+        lines.append(f"[QUESTION {i}]")
+        lines.append(f"[QUESTION]{q['pertanyaan']}[/QUESTION]")
+        if tipe == "pilihan_ganda":
+            lines.append("[OPTIONS]")
+            for o in q.get("options", []):
+                lines.append(f"{o['label']}. {o['teks']}")
+            lines.append("[/OPTIONS]")
+            kunci = ", ".join(o["label"] for o in q.get("options", []) if o["is_correct"])
+            lines.append(f"[ANSWER]{kunci}[/ANSWER]")
+        elif q.get("jawaban_referensi"):
+            lines.append(f"[ANSWER]{q['jawaban_referensi']}[/ANSWER]")
+        if q.get("bobot", 1) not in (1, 1.0):
+            bobot = q["bobot"]
+            lines.append(f"[WEIGHT]{int(bobot) if float(bobot).is_integer() else bobot}[/WEIGHT]")
+        lines.append(f"[/QUESTION {i}]")
+    lines.append("[/QUIZ]")
+    return "\n".join(lines)
+
+
+class ExtractIn(BaseModel):
+    kategori_id: Optional[int] = None
+
+
+@router.post("/api/v1/quizzes/{quiz_id}/extract-questions", status_code=201, dependencies=[Depends(require_csrf)])
+def extract_questions(
+    quiz_id: int,
+    body: ExtractIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Simpan semua soal kuis ini ke bank soal milik guru."""
+    quiz = get_quiz(db, quiz_id)
+    subject, _ = _subject_of_quiz(db, quiz)
+    require_subject_manage(db, user, subject)
+    _validate_category(db, user, body.kategori_id)
+    created = 0
+    for q in _questions_of(db, quiz):
+        db.add(
+            BankQuestion(
+                dibuat_oleh=user.id,
+                kategori_id=body.kategori_id,
+                tipe=q.tipe,
+                pertanyaan=q.pertanyaan,
+                bobot=q.bobot,
+                options=(
+                    [
+                        {"label": o.label, "teks": o.teks, "is_correct": o.is_correct}
+                        for o in q.options
+                    ]
+                    if q.tipe == "pilihan_ganda"
+                    else None
+                ),
+                jawaban_referensi=q.jawaban_referensi if q.tipe == "teks" else None,
+            )
+        )
+        created += 1
+    db.commit()
+    return {"ok": True, "jumlah_diekstrak": created}
+
+
+class ComposeIn(BaseModel):
+    judul: str = Field(min_length=1, max_length=200)
+    jumlah: int = Field(ge=1)
+    kategori_id: Optional[int] = None
+    tipe: str = Field(default="pilihan_ganda", pattern="^(pilihan_ganda|teks)$")
+    durasi_menit: Optional[int] = Field(default=None, ge=1)
+    acak_soal: bool = False
+    acak_opsi: bool = False
+    dibuka_pada: Optional[datetime] = None
+    ditutup_pada: Optional[datetime] = None
+    tampilkan_kunci: bool = True
+
+
+@router.post("/api/v1/meetings/{meeting_id}/quizzes/from-bank-questions", status_code=201, dependencies=[Depends(require_csrf)])
+def compose_quiz_from_bank_questions(
+    meeting_id: int,
+    body: ComposeIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Susun kuis baru dengan menarik `jumlah` soal acak dari bank soal guru."""
+    meeting = get_meeting(db, meeting_id)
+    subject = get_subject(db, meeting.subject_id)
+    require_subject_manage(db, user, subject)
+    if body.kategori_id is not None:
+        _validate_category(db, user, body.kategori_id)
+
+    pool_q = db.query(BankQuestion).filter(
+        BankQuestion.dibuat_oleh == user.id,
+        BankQuestion.tipe == body.tipe,
+    )
+    if body.kategori_id is not None:
+        pool_q = pool_q.filter(BankQuestion.kategori_id == body.kategori_id)
+    pool = pool_q.all()
+    if body.jumlah > len(pool):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Soal di bank tidak cukup: diminta {body.jumlah}, tersedia {len(pool)} "
+                f"(tipe {body.tipe}{' pada kategori ini' if body.kategori_id else ''})."
+            ),
+        )
+    drawn = random.sample(pool, body.jumlah)
+    data = [
+        {
+            "tipe": r.tipe,
+            "pertanyaan": r.pertanyaan,
+            "bobot": r.bobot,
+            "options": r.options or [],
+            "jawaban_referensi": r.jawaban_referensi,
+        }
+        for r in drawn
+    ]
+    quiz = Quiz(
+        meeting_id=meeting.id,
+        judul=body.judul.strip(),
+        tipe=body.tipe,
+        teks_mentah=questions_to_tcml(body.tipe, data),
+        dibuat_oleh=user.id,
+        durasi_menit=body.durasi_menit,
+        acak_soal=body.acak_soal,
+        acak_opsi=body.acak_opsi,
+        dibuka_pada=body.dibuka_pada,
+        ditutup_pada=body.ditutup_pada,
+        tampilkan_kunci=body.tampilkan_kunci,
+    )
+    db.add(quiz)
+    db.flush()
+    _create_questions(db, quiz, data)
+    db.commit()
+    db.refresh(quiz)
+    return _quiz_full_out(db, quiz)

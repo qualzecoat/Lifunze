@@ -287,6 +287,26 @@ class SavedQuiz(Base):
     kategori_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saved_categories.id"))
 
 
+class BankQuestion(Base, TimestampMixin):
+    """Bank soal (Fase 4): soal lepas per butir untuk menyusun kuis acak.
+
+    Opsi disimpan sebagai JSON [{label, teks, is_correct}] — format yang sama
+    dengan keluaran parse_quiz_v2, sehingga soal bank bisa diubah menjadi
+    baris questions/question_options (dan teks TCML) tanpa konversi rumit.
+    """
+
+    __tablename__ = "bank_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    kategori_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saved_categories.id"))
+    tipe: Mapped[str] = mapped_column(String(20), nullable=False)  # pilihan_ganda | teks
+    pertanyaan: Mapped[str] = mapped_column(Text, nullable=False)
+    bobot: Mapped[float] = mapped_column(Float, default=1.0)
+    options: Mapped[Optional[list]] = mapped_column(JSON)  # khusus PG
+    jawaban_referensi: Mapped[Optional[str]] = mapped_column(Text)  # khusus esai
+
+
 # ---------------------------------------------------------------- 5.6 Paket Parser & Generate AI
 class TagModule(Base):
     __tablename__ = "tag_modules"
