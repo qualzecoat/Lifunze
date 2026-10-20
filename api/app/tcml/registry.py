@@ -283,6 +283,26 @@ MODULES = {
 
 ROOT_BLOCKS = ["MATERIAL", "EXERCISE", "PROJECT", "QUIZ"]
 
+# Metadata per tag (nama awam, deskripsi, spec per tag, contoh utuh) +
+# intro spec per modul + ikon UI — didefinisikan di tags_meta.py agar file
+# registry ini tetap ringkas.
+from .tags_meta import SPEC_INTRO, TAGS_META  # noqa: E402
+
+_MODULE_ICONS = {
+    "inti-materi": "🧱",
+    "tabel-data": "📊",
+    "formula-kode": "🧮",
+    "latihan": "✏️",
+    "proyek": "🧩",
+    "kuis-pg": "🧪",
+    "kuis-esai": "📝",
+    "scratch": "🐱",
+}
+for _slug, _mod in MODULES.items():
+    _mod["tags_meta"] = TAGS_META.get(_slug, {})
+    _mod["spec_intro"] = SPEC_INTRO.get(_slug, "")
+    _mod["ikon"] = _MODULE_ICONS.get(_slug, "📦")
+
 TAG_TO_MODULE = {}
 for _slug, _mod in MODULES.items():
     for _tag in _mod["tags"]:

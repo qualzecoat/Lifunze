@@ -118,6 +118,48 @@ def allowed_tags_for(modules: list[TagModule]) -> set[str]:
     return allowed
 
 
+def normalize_tag_pilihan(raw) -> Optional[dict]:
+    """Validasi & rapikan pilihan tag per modul ({"slug": ["TAG", ...]}).
+
+    Mengembalikan None bila tidak ada pilihan efektif. ValueError (pesan
+    Bahasa Indonesia) untuk slug/tag yang tidak dikenal.
+    """
+    if not raw:
+        return None
+    out: dict[str, list[str]] = {}
+    for slug, tags in raw.items():
+        meta = MODULES.get(slug)
+        if meta is None:
+            raise ValueError(f"Modul tidak dikenal: {slug}")
+        valid = set(meta["tags"])
+        chosen: list[str] = []
+        for t in tags or []:
+            if t not in valid:
+                raise ValueError(f"Tag [{t}] tidak termasuk modul {meta['nama']}.")
+            if t not in chosen:
+                chosen.append(t)
+        if chosen:
+            out[slug] = chosen
+    return out or None
+
+
+def effective_tag_pilihan(slugs: list[str], tag_pilihan) -> Optional[dict]:
+    """Pilihan tag efektif: eksplisit bila ada, selain itu semua tag modul."""
+    if tag_pilihan:
+        return normalize_tag_pilihan(tag_pilihan)
+    return {s: list(MODULES[s]["tags"]) for s in slugs if s in MODULES} or None
+
+
+def allowed_tags_for_pack(db: Session, pack: ParserPack) -> set[str]:
+    """Tag yang diizinkan paket: per tag bila tag_pilihan ada, else per modul."""
+    if pack.tag_pilihan:
+        allowed = set(ROOT_BLOCKS)
+        for tags in pack.tag_pilihan.values():
+            allowed.update(tags)
+        return allowed
+    return allowed_tags_for(pack_module_rows(db, pack))
+
+
 def roots_for_slugs(slugs: list[str]) -> list[str]:
     roots: list[str] = []
     for slug in slugs:
@@ -147,19 +189,43 @@ def can_access_pack(db: Session, user: User, pack: ParserPack) -> bool:
 
 
 # ------------------------------------------------------------ rakitan prompt
-def build_spec_text(db: Session, pack: ParserPack) -> str:
-    """Teks spesifikasi paket: hanya modul terpilih (hemat konteks AI)."""
+def spec_text_for_selection(
+    db: Session, slugs: list[str], tag_pilihan: Optional[dict]
+) -> str:
+    """Rakit teks spec dari pilihan modul/tag (dipakai paket tersimpan,
+    pratinjau, dan meja uji). Bila tag_pilihan ada, spec disusun per tag
+    dari metadata registry; selain itu fragmen spec modul utuh (klasik)."""
+    rows_by_slug = sync_tag_modules(db)
     parts = []
-    for m in pack_module_rows(db, pack):
+    for slug in slugs:
+        m = rows_by_slug.get(slug)
+        if m is None:
+            continue
+        meta = MODULES.get(slug, {})
         parts.append(f"## Modul: {m.nama}")
         if m.deskripsi:
             parts.append(m.deskripsi)
-        if m.spec_fragment:
+        if tag_pilihan:
+            intro = meta.get("spec_intro")
+            if intro:
+                parts.append(intro)
+            meta_tags = meta.get("tags_meta", {})
+            for tag in tag_pilihan.get(slug, []):
+                tm = meta_tags.get(tag)
+                if tm:
+                    parts.append(tm["spec"])
+        elif m.spec_fragment:
             parts.append(m.spec_fragment)
         for ex in sorted(m.examples, key=lambda e: e.urutan):
             parts.append(f"Contoh — {ex.judul}:\n```\n{ex.konten}\n```")
         parts.append("")
     return "\n".join(parts).strip()
+
+
+def build_spec_text(db: Session, pack: ParserPack) -> str:
+    """Teks spesifikasi paket: hanya modul/tag terpilih (hemat konteks AI)."""
+    slugs = [m.slug for m in pack_module_rows(db, pack)]
+    return spec_text_for_selection(db, slugs, pack.tag_pilihan)
 
 
 def build_system_prompt(db: Session, pack: ParserPack, kind: str) -> str:
@@ -301,9 +367,8 @@ def validate_document(db: Session, pack: ParserPack, kind: str, teks: str) -> di
             for e in res["errors"]:
                 errors.append({"lapis": "sintaks", "line": e.get("line"), "message": e["message"]})
 
-    # --- lapis 2b: tag harus dari modul paket
-    modules = pack_module_rows(db, pack)
-    allowed = allowed_tags_for(modules)
+    # --- lapis 2b: tag harus dari modul/tag pilihan paket
+    allowed = allowed_tags_for_pack(db, pack)
     for tag in sorted(extract_tags(teks) - allowed):
         errors.append(
             {"lapis": "skema", "message": f"Tag [{tag}] tidak termasuk modul paket ini."}

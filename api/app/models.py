@@ -364,6 +364,9 @@ class ParserPack(Base, TimestampMixin):
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     visibilitas: Mapped[str] = mapped_column(String(20), default="private")
     allowed_roots: Mapped[list] = mapped_column(JSON, default=list)
+    # Pilihan tag per modul (Mode Lanjutan): {"slug-modul": ["TAG", ...]}.
+    # NULL = paket klasik (seluruh tag dari modul terpilih).
+    tag_pilihan: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     modules: Mapped[list["ParserPackModule"]] = relationship(
         back_populates="pack", cascade="all, delete-orphan", order_by="ParserPackModule.urutan"

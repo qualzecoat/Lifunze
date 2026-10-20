@@ -443,3 +443,22 @@ a {
 .tc-sprite { background: #FFF7E0; border: 1px solid #F2D98C; border-left: 5px solid var(--amber); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
 .tc-sprite-name { font-weight: 800; }
 pre.scratchblocks { background: #fff; border: 1px dashed var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; font-family: var(--font-mono); font-size: .9rem; margin: 12px 0; }
+
+/* ---- Paket Parser: mode mudah (kartu modul) & lanjutan ---- */
+.seg-toggle { display: inline-flex; background: #eceafd; border-radius: 99px; padding: 4px; gap: 4px; }
+.seg-toggle button { border: 0; background: transparent; padding: 7px 16px; border-radius: 99px; font-weight: 700; cursor: pointer; font-family: inherit; color: var(--ink); }
+.seg-toggle button.on { background: var(--primary); color: #fff; }
+.modgrid { display: flex; flex-wrap: wrap; gap: 14px; }
+.modcard { position: relative; width: calc(25% - 11px); min-width: 215px; flex-grow: 1; background: #fff; border: 2px solid var(--border); border-radius: 16px; padding: 16px; cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+.modcard:hover { border-color: #c9c2f5; }
+.modcard.on { border-color: var(--primary); background: #f2efff; box-shadow: 0 8px 22px rgba(109, 93, 246, .16); }
+.modcard-ikon { font-size: 1.9rem; }
+.modcard-nama { font-weight: 800; font-size: 1.02rem; margin-top: 6px; }
+.modcard-desc { color: var(--muted); font-size: .85rem; margin-top: 3px; }
+.modcard-ft { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
+.check-badge { position: absolute; top: -11px; right: -11px; width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; font-weight: 800; opacity: 0; transform: scale(.3) rotate(-30deg); transition: opacity .18s, transform .18s; box-shadow: 0 4px 10px rgba(109, 93, 246, .4); pointer-events: none; }
+.modcard.on .check-badge { opacity: 1; transform: scale(1) rotate(0deg); }
+.tagcode { font-family: var(--font-mono, ui-monospace, monospace); background: #efedfb; border-radius: 6px; padding: 1px 6px; font-size: .8rem; color: #5748d6; }
+.codebox { background: #17142B; color: #e9e6ff; border-radius: 10px; padding: 12px 14px; font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.sumbar-inline { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; background: #f6f4ff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: .92rem; }
+@media (max-width: 700px) { .modcard { width: calc(50% - 7px); min-width: 150px; } }

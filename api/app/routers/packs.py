@@ -19,11 +19,15 @@ from ..paket import (
     build_export_markdown,
     build_system_prompt,
     can_access_pack,
+    effective_tag_pilihan,
     ensure_preset_packs,
+    normalize_tag_pilihan,
     pack_module_rows,
     pack_shares,
     roots_for_slugs,
+    spec_text_for_selection,
     sync_tag_modules,
+    validate_document,
 )
 from ..tcml.registry import MODULES as REGISTRY_MODULES
 
@@ -49,6 +53,7 @@ def _pack_out(db: Session, pack: ParserPack, viewer: User) -> dict:
         "modules": [
             {"slug": m.slug, "nama": m.nama} for m in pack_module_rows(db, pack)
         ],
+        "tag_pilihan": pack.tag_pilihan,
         "allowed_roots": pack.allowed_roots or [],
         "dibagikan_ke_semua": any(s.shared_with_id is None for s in shares),
         "shared_with_ids": [s.shared_with_id for s in shares if s.shared_with_id is not None],
@@ -76,12 +81,26 @@ def _get_owned_pack(db: Session, user: User, pack_id: int) -> ParserPack:
     return pack
 
 
-def _set_modules(db: Session, pack: ParserPack, module_slugs: list[str]) -> None:
+def _set_modules(
+    db: Session,
+    pack: ParserPack,
+    module_slugs: list[str],
+    tag_pilihan: Optional[dict] = None,
+) -> None:
     modules_by_slug = sync_tag_modules(db)
-    slugs = list(dict.fromkeys(module_slugs))  # unik, urutan dipertahankan
+    try:
+        normalized = normalize_tag_pilihan(tag_pilihan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if normalized:
+        slugs = list(normalized.keys())
+    else:
+        slugs = list(dict.fromkeys(module_slugs))  # unik, urutan dipertahankan
     unknown = [s for s in slugs if s not in modules_by_slug]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Modul tidak dikenal: {', '.join(unknown)}")
+    if not slugs:
+        raise HTTPException(status_code=400, detail="Pilih minimal satu modul/tag.")
     db.query(ParserPackModule).filter(ParserPackModule.pack_id == pack.id).delete(
         synchronize_session=False
     )
@@ -93,6 +112,7 @@ def _set_modules(db: Session, pack: ParserPack, module_slugs: list[str]) -> None
             )
         )
     pack.allowed_roots = roots_for_slugs(slugs)
+    pack.tag_pilihan = normalized
 
 
 # ------------------------------------------------------------------ katalog
@@ -102,6 +122,13 @@ def list_modules(user: User = Depends(staff), db: Session = Depends(get_db)):
     out = []
     for slug in modules:
         m = modules[slug]
+        reg = REGISTRY_MODULES[slug]
+
+        def _jenis_contoh(konten: str) -> str:
+            if "[QUIZ]" in konten:
+                return "kuis-pg" if "pilihan_ganda" in konten else "kuis-esai"
+            return "material"
+
         out.append(
             {
                 "id": m.id,
@@ -109,15 +136,76 @@ def list_modules(user: User = Depends(staff), db: Session = Depends(get_db)):
                 "nama": m.nama,
                 "deskripsi": m.deskripsi,
                 "spec_fragment": m.spec_fragment,
-                "roots": REGISTRY_MODULES[slug]["roots"],
-                "tags": REGISTRY_MODULES[slug]["tags"],
+                "ikon": reg.get("ikon", "📦"),
+                "roots": reg["roots"],
+                "tags": reg["tags"],
+                "tags_meta": [
+                    {
+                        "tag": t,
+                        "nama": reg.get("tags_meta", {}).get(t, {}).get("nama", t),
+                        "desc": reg.get("tags_meta", {}).get(t, {}).get("desc", ""),
+                        "wajib": bool(reg.get("tags_meta", {}).get(t, {}).get("wajib", False)),
+                        "spec": reg.get("tags_meta", {}).get(t, {}).get("spec", ""),
+                        "contoh": reg.get("tags_meta", {}).get(t, {}).get("contoh", ""),
+                        "jenis": reg.get("tags_meta", {}).get(t, {}).get("jenis", "material"),
+                    }
+                    for t in reg["tags"]
+                ],
                 "examples": [
-                    {"judul": e.judul, "konten": e.konten}
+                    {"judul": e.judul, "konten": e.konten, "jenis": _jenis_contoh(e.konten)}
                     for e in sorted(m.examples, key=lambda x: x.urutan)
                 ],
             }
         )
     return out
+
+
+# -------------------------------------------------- pratinjau spec & meja uji
+class SelectionIn(BaseModel):
+    module_slugs: list[str] = []
+    tag_pilihan: Optional[dict] = None
+
+
+def _selection_slugs(body: SelectionIn) -> tuple[list[str], Optional[dict]]:
+    """Slug efektif + pilihan tag ternormalisasi dari payload pilihan."""
+    try:
+        normalized = normalize_tag_pilihan(body.tag_pilihan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if normalized:
+        return list(normalized.keys()), normalized
+    slugs = [s for s in dict.fromkeys(body.module_slugs) if s in REGISTRY_MODULES]
+    return slugs, None
+
+
+@router.post("/preview-spec", dependencies=[Depends(require_csrf)])
+def preview_spec(body: SelectionIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    slugs, normalized = _selection_slugs(body)
+    if not slugs:
+        return {"spec": "", "karakter": 0}
+    spec = spec_text_for_selection(db, slugs, normalized)
+    return {"spec": spec, "karakter": len(spec)}
+
+
+class TestIn(SelectionIn):
+    kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai)$")
+    teks: str = Field(min_length=1)
+
+
+@router.post("/test", dependencies=[Depends(require_csrf)])
+def test_selection(body: TestIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    slugs, normalized = _selection_slugs(body)
+    if not slugs:
+        raise HTTPException(status_code=400, detail="Pilih minimal satu modul/tag dulu.")
+    eff = effective_tag_pilihan(slugs, normalized)
+    transient = ParserPack(
+        nama="(meja uji)",
+        dibuat_oleh=user.id,
+        visibilitas="private",
+        allowed_roots=roots_for_slugs(slugs),
+        tag_pilihan=eff,
+    )
+    return validate_document(db, transient, body.kind, body.teks)
 
 
 @router.get("/recipients")
@@ -140,6 +228,7 @@ class PackIn(BaseModel):
     nama: str = Field(min_length=1, max_length=200)
     deskripsi: Optional[str] = None
     module_slugs: list[str] = Field(min_length=1)
+    tag_pilihan: Optional[dict] = None
 
 
 @router.get("")
@@ -171,7 +260,7 @@ def create_pack(body: PackIn, user: User = Depends(staff), db: Session = Depends
     )
     db.add(pack)
     db.flush()
-    _set_modules(db, pack, body.module_slugs)
+    _set_modules(db, pack, body.module_slugs, body.tag_pilihan)
     db.commit()
     db.refresh(pack)
     return _pack_out(db, pack, user)
@@ -195,7 +284,7 @@ def update_pack(
     pack = _get_owned_pack(db, user, pack_id)
     pack.nama = body.nama.strip()
     pack.deskripsi = body.deskripsi
-    _set_modules(db, pack, body.module_slugs)
+    _set_modules(db, pack, body.module_slugs, body.tag_pilihan)
     db.commit()
     db.refresh(pack)
     return _pack_out(db, pack, user)
@@ -259,6 +348,7 @@ def fork_pack(pack_id: int, user: User = Depends(staff), db: Session = Depends(g
         dibuat_oleh=user.id,
         visibilitas="private",
         allowed_roots=list(src.allowed_roots or []),
+        tag_pilihan=dict(src.tag_pilihan) if src.tag_pilihan else None,
     )
     db.add(pack)
     db.flush()
