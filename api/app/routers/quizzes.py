@@ -372,6 +372,13 @@ def save_quiz_to_bank(
     quiz = get_quiz(db, quiz_id)
     subject, _ = _subject_of_quiz(db, quiz)
     require_subject_manage(db, user, subject)
+    sudah = (
+        db.query(SavedQuiz)
+        .filter(SavedQuiz.dibuat_oleh == user.id, SavedQuiz.asal_id == quiz.id)
+        .first()
+    )
+    if sudah is not None:
+        raise HTTPException(status_code=400, detail="Kuis ini sudah ada di bank Anda.")
     parsed = parse_quiz_v2(quiz.teks_mentah, expected_type=quiz.tipe)
     snapshot = parsed["content"]["questions"] if parsed["success"] else None
     saved = SavedQuiz(
@@ -381,6 +388,7 @@ def save_quiz_to_bank(
         snapshot=snapshot,
         dibuat_oleh=user.id,
         kategori_id=body.kategori_id,
+        asal_id=quiz.id,
     )
     db.add(saved)
     db.commit()

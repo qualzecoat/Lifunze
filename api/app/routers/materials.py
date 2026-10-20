@@ -191,6 +191,38 @@ def update_material(
     return material_out(m, subject.id)
 
 
+@router.post("/api/v1/materials/{material_id}/save-to-bank", status_code=201, dependencies=[Depends(require_csrf)])
+def save_material_to_bank(
+    material_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Simpan materi pertemuan ini ke bank pemiliknya — dengan penanda asal.
+    Sekali tersimpan, materi yang sama tidak bisa disimpan lagi walau diedit
+    (keputusan Qualze, paket perbaikan 2026-10-20)."""
+    m = get_material(db, material_id)
+    subject, _ = _subject_of_material(db, m)
+    require_subject_manage(db, user, subject)
+    sudah = (
+        db.query(SavedMaterial)
+        .filter(SavedMaterial.dibuat_oleh == user.id, SavedMaterial.asal_id == m.id)
+        .first()
+    )
+    if sudah is not None:
+        raise HTTPException(status_code=400, detail="Materi ini sudah ada di bank Anda.")
+    saved = SavedMaterial(
+        judul=m.judul,
+        teks_mentah=m.teks_mentah,
+        dibuat_oleh=user.id,
+        kategori_id=None,
+        asal_id=m.id,
+    )
+    db.add(saved)
+    db.commit()
+    db.refresh(saved)
+    return {"id": saved.id, "judul": saved.judul, "asal_id": saved.asal_id}
+
+
 @router.delete("/api/v1/materials/{material_id}", dependencies=[Depends(require_csrf)])
 def delete_material(
     material_id: int,

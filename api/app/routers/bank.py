@@ -224,6 +224,57 @@ def delete_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = 
     return {"ok": True}
 
 
+@router.post("/quizzes/{saved_id}/extract-questions", status_code=201, dependencies=[Depends(require_csrf)])
+def extract_saved_quiz_questions(saved_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
+    """Masukkan semua soal kuis bank ini ke bank soal pemiliknya (permintaan
+    Qualze, paket 2026-10-20). Soal yang persis sama dengan yang sudah ada
+    di bank soal dilewati, tidak digandakan."""
+    import json as _json
+
+    s = db.get(SavedQuiz, saved_id)
+    if s is None or s.dibuat_oleh != user.id:
+        raise HTTPException(status_code=404, detail="Kuis bank tidak ditemukan.")
+    questions = s.snapshot if isinstance(s.snapshot, list) else None
+    if questions is None:
+        from ..tcml import parse_quiz_v2
+
+        parsed = parse_quiz_v2(s.teks_mentah, expected_type=s.tipe)
+        if not parsed["success"]:
+            raise HTTPException(status_code=400, detail="Teks kuis bank tidak valid sehingga tidak bisa diekstrak.")
+        questions = parsed["content"]["questions"]
+
+    def kunci(tipe: str, pertanyaan: str, options) -> str:
+        opsi = _json.dumps(options or [], sort_keys=True, ensure_ascii=False)
+        return f"{tipe}|{pertanyaan.strip()}|{opsi}"
+
+    sudah_ada = {
+        kunci(q.tipe, q.pertanyaan, q.options)
+        for q in db.query(BankQuestion).filter(BankQuestion.dibuat_oleh == user.id)
+    }
+    dimasukkan, dilewati = 0, 0
+    for q in questions:
+        options = q.get("options") if s.tipe == "pilihan_ganda" else None
+        k = kunci(s.tipe, q.get("pertanyaan", ""), options)
+        if k in sudah_ada:
+            dilewati += 1
+            continue
+        sudah_ada.add(k)
+        db.add(
+            BankQuestion(
+                dibuat_oleh=user.id,
+                kategori_id=s.kategori_id,
+                tipe=s.tipe,
+                pertanyaan=q.get("pertanyaan", ""),
+                bobot=q.get("bobot", 1.0),
+                options=options,
+                jawaban_referensi=q.get("jawaban_referensi") if s.tipe == "teks" else None,
+            )
+        )
+        dimasukkan += 1
+    db.commit()
+    return {"ok": True, "dimasukkan": dimasukkan, "dilewati": dilewati}
+
+
 # ------------------------------------------- jelajahi & salin bank guru lain
 def _owner_info(db: Session, user_id: int) -> dict:
     u = db.get(User, user_id)

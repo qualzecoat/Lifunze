@@ -13,6 +13,7 @@ from .routers import (
     ai_settings,
     auth,
     bank,
+    class_templates,
     dashboard,
     generate,
     learning,
@@ -66,6 +67,7 @@ app.include_router(packs.router)
 app.include_router(generate.router)
 app.include_router(learning.router)
 app.include_router(dashboard.router)
+app.include_router(class_templates.router)
 
 
 class ParseKind(str, Enum):

@@ -465,7 +465,12 @@ function EditorKuisInner() {
           )}
         </div>
         <div>
-          <label className="label">Pratinjau soal ({preview.length})</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label className="label">Pratinjau soal ({preview.length})</label>
+            <button type="button" className="btn btn-sm" onClick={() => runPreview(teks, tipe)}>
+              🔄 Refresh Pratinjau
+            </button>
+          </div>
           {preview.map((q, i) => (
             <div className="card" key={i} style={{ marginBottom: 10 }}>
               <p><strong>{i + 1}. {q.pertanyaan}</strong> <span className="badge">bobot {q.bobot}</span></p>

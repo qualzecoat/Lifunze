@@ -81,6 +81,7 @@ export default function BankPage() {
       else {
         setUser(u);
         load();
+        loadTemplates();
       }
     });
   }, [router, load]);
@@ -113,6 +114,65 @@ export default function BankPage() {
     await apiFetch(`/api/v1/bank/quizzes/${q.id}`, { method: "DELETE" });
     setOk("Kuis bank dihapus.");
     load();
+  }
+
+  async function extractToBankSoal(q: SavedQuiz) {
+    setError("");
+    setOk("");
+    try {
+      const r = await apiFetch<{ dimasukkan: number; dilewati: number }>(
+        `/api/v1/bank/quizzes/${q.id}/extract-questions`,
+        { method: "POST" },
+      );
+      setOk(
+        `Dari kuis "${q.judul}": ${r.dimasukkan} soal dimasukkan ke bank soal` +
+          (r.dilewati > 0 ? `, ${r.dilewati} dilewati karena sudah ada.` : "."),
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memasukkan ke bank soal.");
+    }
+  }
+
+  // -- Template Kelas --
+  interface TemplateRow {
+    id: number;
+    nama: string;
+    deskripsi: string | null;
+    jumlah_pertemuan: number;
+    jumlah_materi: number;
+    jumlah_kuis: number;
+  }
+  const [templates, setTemplates] = useState<TemplateRow[]>([]);
+
+  async function loadTemplates() {
+    try {
+      setTemplates(await apiFetch<TemplateRow[]>("/api/v1/class-templates"));
+    } catch {
+      /* abaikan */
+    }
+  }
+
+  async function deleteTemplate(t: TemplateRow) {
+    if (!window.confirm(`Hapus template kelas "${t.nama}"? Kelas yang sudah dibuat darinya tidak ikut terhapus.`)) return;
+    await apiFetch(`/api/v1/class-templates/${t.id}`, { method: "DELETE" });
+    setOk("Template kelas dihapus.");
+    loadTemplates();
+  }
+
+  async function instantiateTemplate(t: TemplateRow) {
+    const nama = window.prompt("Nama kelas baru:", t.nama);
+    if (!nama) return;
+    setError("");
+    try {
+      const r = await apiFetch<{ id: number }>(`/api/v1/class-templates/${t.id}/instantiate`, {
+        method: "POST",
+        body: { nama },
+      });
+      router.push(`/kelas/${r.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat kelas dari template.");
+    }
   }
 
   async function addQuestion(e: React.FormEvent) {
@@ -239,7 +299,12 @@ export default function BankPage() {
                 <td>{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai/Teks"}</td>
                 <td>{q.jumlah_soal}</td>
                 <td>{catName(q.kategori_id)}</td>
-                <td><button className="btn btn-sm btn-danger" onClick={() => deleteQuiz(q)}>Hapus</button></td>
+                <td>
+                  <span className="row-actions">
+                    <button className="btn btn-sm" onClick={() => extractToBankSoal(q)}>📥 Ke Bank Soal</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => deleteQuiz(q)}>Hapus</button>
+                  </span>
+                </td>
               </tr>
             ))}
             {quizzes.length === 0 && <tr><td colSpan={5} className="muted">Belum ada kuis di bank. Kuis dibuat dari pertemuan (modul kuis) lalu bisa disimpan ke bank.</td></tr>}
@@ -347,6 +412,32 @@ export default function BankPage() {
           )}
           <button className="btn btn-primary" type="submit" style={{ marginTop: 10 }}>➕ Tambah Soal</button>
         </form>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3>🏫 Template Kelas ({templates.length})</h3>
+        <p className="muted" style={{ margin: "6px 0 10px" }}>
+          Kelas utuh yang Anda simpan sebagai template — pertemuan, materi, dan kuisnya bisa
+          dipakai ulang untuk membuka kelas baru (tanpa siswa & tanpa jadwal).
+        </p>
+        {templates.map((t) => (
+          <div key={t.id} style={{ padding: "7px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+            <div>
+              <strong>{t.nama}</strong>{" "}
+              <span className="muted">
+                {t.jumlah_pertemuan} pertemuan · {t.jumlah_materi} materi · {t.jumlah_kuis} kuis
+              </span>
+              {t.deskripsi && <div className="muted">{t.deskripsi}</div>}
+            </div>
+            <span className="row-actions">
+              <button className="btn btn-sm btn-primary" onClick={() => instantiateTemplate(t)}>➕ Buat Kelas</button>
+              <button className="btn btn-sm btn-danger" onClick={() => deleteTemplate(t)}>Hapus</button>
+            </span>
+          </div>
+        ))}
+        {templates.length === 0 && (
+          <p className="muted">Belum ada template. Simpan dari menu Kelas (tombol "Simpan Template") atau dari halaman kelas.</p>
+        )}
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>

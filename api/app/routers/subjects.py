@@ -44,6 +44,23 @@ def meeting_out(db: Session, m: Meeting) -> dict:
         db.query(Material).filter(Material.meeting_id == m.id).order_by(Material.id).all()
     )
     quizzes = db.query(Quiz).filter(Quiz.meeting_id == m.id).order_by(Quiz.id).all()
+    # Flag "sudah di bank" dari penanda asal milik pemilik kelas (paket 2026-10-20).
+    from ..models import SavedMaterial, SavedQuiz
+
+    pemilik = db.get(Subject, m.subject_id)
+    pemilik_id = pemilik.dibuat_oleh if pemilik else None
+    materi_di_bank = {
+        s.asal_id
+        for s in db.query(SavedMaterial).filter(
+            SavedMaterial.dibuat_oleh == pemilik_id, SavedMaterial.asal_id.isnot(None)
+        )
+    }
+    kuis_di_bank = {
+        s.asal_id
+        for s in db.query(SavedQuiz).filter(
+            SavedQuiz.dibuat_oleh == pemilik_id, SavedQuiz.asal_id.isnot(None)
+        )
+    }
     return {
         "id": m.id,
         "subject_id": m.subject_id,
@@ -56,6 +73,7 @@ def meeting_out(db: Session, m: Meeting) -> dict:
                 "id": mt.id,
                 "judul": mt.judul,
                 "jumlah_file": len(mt.files),
+                "di_bank": mt.id in materi_di_bank,
                 "created_at": mt.created_at.isoformat() if mt.created_at else None,
             }
             for mt in materials
@@ -66,6 +84,7 @@ def meeting_out(db: Session, m: Meeting) -> dict:
                 "judul": q.judul,
                 "tipe": q.tipe,
                 "jumlah_soal": len(q.questions),
+                "di_bank": q.id in kuis_di_bank,
             }
             for q in quizzes
         ],

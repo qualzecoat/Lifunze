@@ -16,6 +16,15 @@ export interface SubjectRow {
   jumlah_siswa: number;
 }
 
+interface ClassTemplateRow {
+  id: number;
+  nama: string;
+  deskripsi: string | null;
+  jumlah_pertemuan: number;
+  jumlah_materi: number;
+  jumlah_kuis: number;
+}
+
 export default function KelasPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -23,6 +32,17 @@ export default function KelasPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({ nama: "", deskripsi: "" });
   const [showArchived, setShowArchived] = useState(false);
+  const [templates, setTemplates] = useState<ClassTemplateRow[]>([]);
+  const [tplForm, setTplForm] = useState({ template_id: "", nama: "" });
+  const [ok, setOk] = useState("");
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      setTemplates(await apiFetch<ClassTemplateRow[]>("/api/v1/class-templates"));
+    } catch {
+      /* template opsional; abaikan bila gagal */
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -40,9 +60,64 @@ export default function KelasPage() {
       else {
         setUser(u);
         load();
+        if (u.role === "guru" || u.role === "admin") loadTemplates();
       }
     });
-  }, [router, load]);
+  }, [router, load, loadTemplates]);
+
+  function bisaKelola(s: SubjectRow) {
+    return user?.role === "admin" || s.dibuat_oleh === user?.id;
+  }
+
+  async function renameSubject(s: SubjectRow) {
+    const nama = window.prompt("Nama baru kelas:", s.nama);
+    if (!nama || nama === s.nama) return;
+    await apiFetch(`/api/v1/subjects/${s.id}`, { method: "PATCH", body: { nama } });
+    load();
+  }
+
+  async function toggleArchiveRow(s: SubjectRow) {
+    await apiFetch(`/api/v1/subjects/${s.id}`, {
+      method: "PATCH",
+      body: { is_archived: !s.is_archived },
+    });
+    load();
+  }
+
+  async function deleteSubjectRow(s: SubjectRow) {
+    if (!window.confirm(`Hapus kelas "${s.nama}" beserta seluruh isinya? Tindakan ini tidak bisa dibatalkan.`)) return;
+    await apiFetch(`/api/v1/subjects/${s.id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function saveTemplateRow(s: SubjectRow) {
+    const nama = window.prompt("Nama template:", s.nama);
+    if (!nama) return;
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/subjects/${s.id}/save-template`, { method: "POST", body: { nama } });
+      setOk(`Kelas "${s.nama}" tersimpan sebagai template "${nama}".`);
+      loadTemplates();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan template.");
+    }
+  }
+
+  async function instantiateFromTemplate(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!tplForm.template_id || !tplForm.nama) return;
+    try {
+      const r = await apiFetch<{ id: number }>(
+        `/api/v1/class-templates/${tplForm.template_id}/instantiate`,
+        { method: "POST", body: { nama: tplForm.nama } },
+      );
+      router.push(`/kelas/${r.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat kelas dari template.");
+    }
+  }
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
   const staff = user.role === "guru" || user.role === "admin";
@@ -71,6 +146,7 @@ export default function KelasPage() {
           : "Mata pelajaran yang Anda buat dan kelola."}
       </p>
       {error && <div className="alert alert-error">{error}</div>}
+      {ok && <div className="alert alert-ok">{ok}</div>}
 
       {staff && (
         <form className="card" onSubmit={onCreate} style={{ marginBottom: 16 }}>
@@ -89,6 +165,44 @@ export default function KelasPage() {
         </form>
       )}
 
+      {staff && templates.length > 0 && (
+        <form className="card" onSubmit={instantiateFromTemplate} style={{ marginBottom: 16 }}>
+          <h3>📋 Buat Kelas dari Template</h3>
+          <p className="muted" style={{ marginBottom: 10 }}>
+            Kelas baru berisi salinan pertemuan, materi, dan kuis dari template — tanpa siswa,
+            tanpa jadwal/tanggal, dan tanpa jendela kuis.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+            <div>
+              <label className="label">Template</label>
+              <select
+                className="input"
+                value={tplForm.template_id}
+                onChange={(e) => setTplForm({ ...tplForm, template_id: e.target.value })}
+                required
+              >
+                <option value="">— pilih template —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nama} ({t.jumlah_pertemuan} pertemuan, {t.jumlah_materi} materi, {t.jumlah_kuis} kuis)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Nama kelas baru</label>
+              <input
+                className="input"
+                value={tplForm.nama}
+                onChange={(e) => setTplForm({ ...tplForm, nama: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+          <button className="btn btn-primary" type="submit" style={{ marginTop: 14 }}>Buat dari Template</button>
+        </form>
+      )}
+
       {staff && (
         <label style={{ display: "block", marginBottom: 14 }}>
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />{" "}
@@ -96,15 +210,32 @@ export default function KelasPage() {
         </label>
       )}
 
-      <div className="grid-cards">
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {subjects.map((s) => (
-          <Link key={s.id} href={`/kelas/${s.id}`} className="card">
-            <h3>{s.nama} {s.is_archived && <span className="badge badge-off">arsip</span>}</h3>
-            <p className="muted">{s.deskripsi ?? "Tanpa deskripsi"}</p>
-            <p className="muted" style={{ marginTop: 8 }}>
-              📅 {s.jumlah_pertemuan} pertemuan · 👩‍🎓 {s.jumlah_siswa} siswa
-            </p>
-          </Link>
+          <div key={s.id} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 0 }}>
+            <div style={{ minWidth: 220, flex: 1 }}>
+              <h3 style={{ margin: 0 }}>
+                {s.nama} {s.is_archived && <span className="badge badge-off">arsip</span>}
+              </h3>
+              <p className="muted" style={{ margin: "4px 0 0" }}>{s.deskripsi ?? "Tanpa deskripsi"}</p>
+              <p className="muted" style={{ margin: "4px 0 0" }}>
+                📅 {s.jumlah_pertemuan} pertemuan · 👩‍🎓 {s.jumlah_siswa} siswa
+              </p>
+            </div>
+            <span className="row-actions">
+              <Link className="btn btn-sm btn-primary" href={`/kelas/${s.id}`}>Buka</Link>
+              {staff && bisaKelola(s) && (
+                <>
+                  <button className="btn btn-sm" onClick={() => renameSubject(s)}>✏️ Ubah Nama</button>
+                  <button className="btn btn-sm" onClick={() => saveTemplateRow(s)}>💾 Simpan Template</button>
+                  <button className="btn btn-sm" onClick={() => toggleArchiveRow(s)}>
+                    {s.is_archived ? "Keluarkan dari Arsip" : "Arsipkan"}
+                  </button>
+                  <button className="btn btn-sm btn-danger" onClick={() => deleteSubjectRow(s)}>Hapus</button>
+                </>
+              )}
+            </span>
+          </div>
         ))}
         {subjects.length === 0 && (
           <p className="muted">

@@ -211,10 +211,16 @@ function EditorInner() {
     setError("");
     setOk("");
     try {
-      await apiFetch("/api/v1/bank/materials", {
-        method: "POST",
-        body: { judul, teks_mentah: teks, kategori_id: null },
-      });
+      if (materialParam) {
+        // Materi yang sudah ada: endpoint berpenanda asal — sekali tersimpan
+        // tidak bisa disimpan lagi walau diedit (keputusan Qualze).
+        await apiFetch(`/api/v1/materials/${materialParam}/save-to-bank`, { method: "POST" });
+      } else {
+        await apiFetch("/api/v1/bank/materials", {
+          method: "POST",
+          body: { judul, teks_mentah: teks, kategori_id: null },
+        });
+      }
       setOk("Salinan tersimpan ke Bank Materi.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan ke bank.");
@@ -292,7 +298,12 @@ function EditorInner() {
           )}
         </div>
         <div>
-          <label className="label" style={{ marginTop: 0 }}>Pratinjau</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label className="label" style={{ marginTop: 0 }}>Pratinjau</label>
+            <button type="button" className="btn btn-sm" onClick={() => runPreview(teks)}>
+              🔄 Refresh Pratinjau
+            </button>
+          </div>
           {previewHtml ? (
             <article className="card tcml" dangerouslySetInnerHTML={{ __html: previewHtml }} />
           ) : (

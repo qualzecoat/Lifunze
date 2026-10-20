@@ -273,6 +273,10 @@ class SavedMaterial(Base):
     teks_mentah: Mapped[str] = mapped_column(Text, nullable=False)
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     kategori_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saved_categories.id"))
+    # Penanda asal (paket perbaikan 2026-10-20): id materi pertemuan asal item
+    # bank ini disimpan darinya. Sekali tersimpan, materi tidak bisa disimpan
+    # lagi walau diedit (keputusan Qualze). Salinan antar guru: NULL.
+    asal_id: Mapped[Optional[int]] = mapped_column(Integer)
 
 
 class SavedQuiz(Base):
@@ -285,6 +289,7 @@ class SavedQuiz(Base):
     snapshot: Mapped[Optional[dict]] = mapped_column(JSONB_TYPE)  # struktur soal (impor tanpa parse ulang)
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     kategori_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saved_categories.id"))
+    asal_id: Mapped[Optional[int]] = mapped_column(Integer)  # id kuis pertemuan asal (lihat SavedMaterial)
 
 
 class BankQuestion(Base, TimestampMixin):
@@ -305,6 +310,21 @@ class BankQuestion(Base, TimestampMixin):
     bobot: Mapped[float] = mapped_column(Float, default=1.0)
     options: Mapped[Optional[list]] = mapped_column(JSON)  # khusus PG
     jawaban_referensi: Mapped[Optional[str]] = mapped_column(Text)  # khusus esai
+
+
+class ClassTemplate(Base, TimestampMixin):
+    """Template Kelas (paket perbaikan 2026-10-20): snapshot satu kelas utuh
+    (pertemuan + materi + kuis) dalam JSON untuk membuat kelas baru dengan
+    isi yang sama. Lampiran materi disalin fisik ke storage/templates/<id>/
+    agar template tidak bergantung pada file materi asalnya."""
+
+    __tablename__ = "class_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pemilik_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    nama: Mapped[str] = mapped_column(String(200), nullable=False)
+    deskripsi: Mapped[Optional[str]] = mapped_column(Text)
+    data: Mapped[Optional[dict]] = mapped_column(JSONB_TYPE)
 
 
 # ---------------------------------------------------------------- 5.6 Paket Parser & Generate AI

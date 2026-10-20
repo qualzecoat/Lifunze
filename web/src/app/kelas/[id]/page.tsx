@@ -10,12 +10,14 @@ interface MaterialBrief {
   id: number;
   judul: string;
   jumlah_file: number;
+  di_bank: boolean;
 }
 interface QuizBrief {
   id: number;
   judul: string;
   tipe: string;
   jumlah_soal: number;
+  di_bank: boolean;
 }
 interface Meeting {
   id: number;
@@ -194,6 +196,56 @@ export default function KelasDetailPage() {
     load();
   }
 
+  // -- Aksi per baris materi/kuis (paket perbaikan 2026-10-20) --
+  async function saveMaterialBank(mt: MaterialBrief) {
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/materials/${mt.id}/save-to-bank`, { method: "POST" });
+      setOk(`Materi "${mt.judul}" tersimpan ke bank.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan ke bank.");
+    }
+  }
+
+  async function deleteMaterialRow(mt: MaterialBrief) {
+    if (!window.confirm(`Hapus materi "${mt.judul}"? Pengumpulan tugas di dalamnya ikut terhapus.`)) return;
+    await apiFetch(`/api/v1/materials/${mt.id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function saveQuizBank(q: QuizBrief) {
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/quizzes/${q.id}/save-to-bank`, { method: "POST", body: {} });
+      setOk(`Kuis "${q.judul}" tersimpan ke bank.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan ke bank.");
+    }
+  }
+
+  async function deleteQuizRow(q: QuizBrief) {
+    if (!window.confirm(`Hapus kuis "${q.judul}"? PERINGATAN: hasil pengerjaan siswa pada kuis ini ikut terhapus.`)) return;
+    await apiFetch(`/api/v1/quizzes/${q.id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function saveAsTemplate() {
+    const nama = window.prompt("Nama template kelas:", subject?.nama ?? "");
+    if (!nama) return;
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/subjects/${sid}/save-template`, { method: "POST", body: { nama } });
+      setOk(`Kelas tersimpan sebagai template "${nama}". Template bisa dipakai lagi dari menu Kelas atau Bank.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan template.");
+    }
+  }
+
   async function openBank(meetingId: number) {
     if (bankFor === meetingId) {
       setBankFor(null);
@@ -366,6 +418,7 @@ export default function KelasDetailPage() {
         </div>
         {kelola && (
           <span className="row-actions">
+            <button className="btn btn-sm" onClick={saveAsTemplate}>💾 Simpan sebagai Template</button>
             <button className="btn btn-sm" onClick={toggleArchive}>
               {subject.is_archived ? "Keluarkan dari Arsip" : "Arsipkan"}
             </button>
@@ -516,9 +569,17 @@ export default function KelasDetailPage() {
             {m.materials.map((mt) => (
               <div key={mt.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                 <Link href={`/materi/${mt.id}`}>📄 {mt.judul}</Link>
-                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   {mt.jumlah_file > 0 && <span className="muted">📎 {mt.jumlah_file}</span>}
-                  {kelola && <Link href={`/editor/materi?material=${mt.id}`} className="muted">edit</Link>}
+                  {kelola && (
+                    <>
+                      <Link className="btn btn-sm" href={`/editor/materi?material=${mt.id}`}>✏️ Edit</Link>
+                      {!mt.di_bank && (
+                        <button className="btn btn-sm" onClick={() => saveMaterialBank(mt)}>📚 Simpan ke Bank</button>
+                      )}
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteMaterialRow(mt)}>🗑️ Hapus</button>
+                    </>
+                  )}
                 </span>
               </div>
             ))}
@@ -528,7 +589,18 @@ export default function KelasDetailPage() {
             {m.quizzes.map((q) => (
               <div key={q.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                 <Link href={`/kuis/${q.id}`}>🧪 {q.judul}</Link>
-                <span className="muted">{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"} · {q.jumlah_soal} soal</span>
+                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span className="muted">{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"} · {q.jumlah_soal} soal</span>
+                  {kelola && (
+                    <>
+                      <Link className="btn btn-sm" href={`/editor/kuis?quiz=${q.id}&subject=${sid}&meeting=${m.id}`}>✏️ Edit</Link>
+                      {!q.di_bank && (
+                        <button className="btn btn-sm" onClick={() => saveQuizBank(q)}>📚 Simpan ke Bank</button>
+                      )}
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteQuizRow(q)}>🗑️ Hapus</button>
+                    </>
+                  )}
+                </span>
               </div>
             ))}
           </div>
