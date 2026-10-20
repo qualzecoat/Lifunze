@@ -86,6 +86,31 @@ export default function MateriPage() {
     localStorage.setItem("lifunze-hemat", v ? "1" : "0");
   }
 
+  // Render notasi [BLOCKS] menjadi blok Scratch visual (scratchblocks).
+  // Bila CDN tidak terjangkau, notasi tetap tampil sebagai teks yang terbaca.
+  useEffect(() => {
+    if (!material?.rendered_html?.includes("scratchblocks")) return;
+    const render = () => {
+      const w = window as unknown as { scratchblocks?: { renderMatching: (sel: string, opts: Record<string, unknown>) => void } };
+      try {
+        w.scratchblocks?.renderMatching("pre.scratchblocks", {
+          style: "scratch3",
+          languages: ["en"],
+        });
+      } catch { /* abaikan: fallback teks */ }
+    };
+    const existing = document.getElementById("scratchblocks-js") as HTMLScriptElement | null;
+    if (existing) {
+      render();
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = "scratchblocks-js";
+    s.src = "https://scratchblocks.github.io/js/scratchblocks-v3.6-min.js";
+    s.onload = render;
+    document.body.appendChild(s);
+  }, [material]);
+
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
 
   const kelola = user.role === "admin" || (user.role === "guru" && material?.dibuat_oleh === user.id);
@@ -166,9 +191,9 @@ export default function MateriPage() {
             {material.files.length === 0 && <p className="muted">Tidak ada lampiran.</p>}
             {kelola && (
               <div style={{ marginTop: 12 }}>
-                <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.pdf,.mp4" />{" "}
+                <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.pdf,.mp4,.sb3" />{" "}
                 <button className="btn btn-sm" onClick={upload}>Unggah Lampiran</button>
-                <p className="muted">PNG/JPG/PDF/MP4, maks 16 MB.</p>
+                <p className="muted">PNG/JPG/PDF/MP4/SB3 (proyek Scratch), maks 16 MB.</p>
               </div>
             )}
           </div>

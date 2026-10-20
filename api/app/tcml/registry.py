@@ -246,7 +246,39 @@ MODULES = {
             }
         ],
     },
-    # "scratch": modul khusus Scratch — direncanakan Fase 7 (belum ada renderer).
+    # "scratch": modul khusus Scratch (Fase 7) — renderer di tcml/scratch.py.
+    "scratch": {
+        "nama": "Scratch",
+        "roots": [],
+        "tags": ["SCRATCH", "BLOCKS", "SPRITE"],
+        "deskripsi": (
+            "Konten Scratch: sematan proyek (stage) yang bisa dimainkan langsung di materi, "
+            "blok kode visual dari notasi teks, dan kartu info sprite."
+        ),
+        "spec": (
+            "Modul Scratch (di dalam [MATERIAL]):\n"
+            "- [SCRATCH]id-atau-url[/SCRATCH]: menyematkan pemutar proyek yang bisa dimainkan siswa langsung di halaman materi. "
+            "Isi HANYA salah satu dari: (a) ID proyek berupa angka (mis. 104), (b) URL https://scratch.mit.edu/projects/<id>, "
+            "(c) URL https://turbowarp.org/<id>. Cara mendapat ID: buka proyek di scratch.mit.edu, angka pada URL-nya adalah ID proyek.\n"
+            "- [BLOCKS]...[/BLOCKS]: blok kode Scratch ditulis sebagai notasi teks scratchblocks (Bahasa Inggris, satu blok per baris), "
+            "mis. 'when green flag clicked', 'move (10) steps', 'say [Halo!] for (2) seconds', perulangan dengan 'repeat (10)' ... 'end', "
+            "percabangan 'if <...> then' ... 'end'. Di halaman materi, notasi ini tampil sebagai gambar blok Scratch berwarna.\n"
+            "- [SPRITE]...[/SPRITE]: kartu info sprite — baris pertama NAMA sprite, baris-baris berikutnya penjelasan peran & cara membuatnya."
+        ),
+        "contoh": [
+            {
+                "judul": "Materi Scratch: gerak & sematan proyek",
+                "konten": (
+                    "[MATERIAL]\n[TITLE]Menggerakkan Sprite[/TITLE]\n"
+                    "Tekan bendera hijau pada proyek contoh di bawah, lalu gunakan tombol panah.\n"
+                    "[SCRATCH]104[/SCRATCH]\n"
+                    "[SPRITE]\nKucing\nSprite utama. Ikuti gerakannya pada stage dan perhatikan blok di bawah.\n[/SPRITE]\n"
+                    "[BLOCKS]\nwhen green flag clicked\nforever\nif <key [right arrow v] pressed?> then\nmove (10) steps\nend\nend\n[/BLOCKS]\n"
+                    "[NOTE]Blok forever membuat pengecekan tombol terjadi terus-menerus.[/NOTE]\n[/MATERIAL]"
+                ),
+            }
+        ],
+    },
 }
 
 ROOT_BLOCKS = ["MATERIAL", "EXERCISE", "PROJECT", "QUIZ"]

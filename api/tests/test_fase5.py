@@ -77,7 +77,7 @@ def test_modul_dan_paket_crud(client):
     make_user("guru2", "guru")
     csrf = login(client, "guru1")
     modules = client.get("/api/v1/packs/modules").json()
-    assert len(modules) == 7
+    assert len(modules) == 8
     pg = next(m for m in modules if m["slug"] == "kuis-pg")
     assert "WEIGHT" in pg["tags"] and pg["examples"]
 

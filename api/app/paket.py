@@ -63,6 +63,7 @@ PRESET_PACKS = [
     ("Kuis Pilihan Ganda", "Khusus menyusun kuis PG berbobot & multi-jawaban.", ["kuis-pg"]),
     ("Kuis Esai", "Khusus menyusun kuis esai dengan jawaban referensi.", ["kuis-esai"]),
     ("Kelas Lengkap", "Semua modul: materi, data, kode, latihan, proyek, dan kedua kuis.", ["inti-materi", "tabel-data", "formula-kode", "latihan", "proyek", "kuis-pg", "kuis-esai"]),
+    ("Kursus Scratch", "Paket kelas coding Scratch: materi dengan sematan proyek & blok visual, latihan, tugas proyek (.sb3), dan kuis PG.", ["inti-materi", "scratch", "latihan", "proyek", "kuis-pg"]),
 ]
 
 

@@ -28,13 +28,14 @@ from ..tcml import parse_material
 
 router = APIRouter(tags=["materials"])
 
-ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".pdf", ".mp4"}
+ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".pdf", ".mp4", ".sb3"}
 MIME_BY_EXT = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".pdf": "application/pdf",
     ".mp4": "video/mp4",
+    ".sb3": "application/octet-stream",
 }
 
 
@@ -205,7 +206,7 @@ async def upload_file(
 
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(status_code=400, detail="Format file tidak didukung. Gunakan PNG, JPG, PDF, atau MP4.")
+        raise HTTPException(status_code=400, detail="Format file tidak didukung. Gunakan PNG, JPG, PDF, MP4, atau SB3.")
     content = await file.read()
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if len(content) > max_bytes:

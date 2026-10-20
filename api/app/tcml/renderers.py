@@ -79,6 +79,15 @@ class MaterialRenderer:
             elif tag == 'DATASET' or tag == 'TABLE':
                 raw_text = self._get_raw_text(node).strip()
                 return self._render_table(raw_text)
+            elif tag == 'SCRATCH':
+                from .scratch import scratch_embed_html
+                return scratch_embed_html(self._get_raw_text(node), node.line, self.errors)
+            elif tag == 'BLOCKS':
+                from .scratch import blocks_html
+                return blocks_html(self._get_raw_text(node))
+            elif tag == 'SPRITE':
+                from .scratch import sprite_html
+                return sprite_html(self._get_raw_text(node))
             else:
                 self.errors.append({"line": node.line, "message": f"Unknown tag: [{node.tag}]"})
                 return inner_html
@@ -317,6 +326,15 @@ class ExtendedMaterialRenderer(MaterialRenderer):
             elif tag == 'DATASET' or tag == 'TABLE':
                 raw_text = self._get_raw_text(node).strip()
                 return self._render_table(raw_text)
+            elif tag == 'SCRATCH':
+                from .scratch import scratch_embed_html
+                return scratch_embed_html(self._get_raw_text(node), node.line, self.errors)
+            elif tag == 'BLOCKS':
+                from .scratch import blocks_html
+                return blocks_html(self._get_raw_text(node))
+            elif tag == 'SPRITE':
+                from .scratch import sprite_html
+                return sprite_html(self._get_raw_text(node))
 
             # --- Exercise Blocks ---
             elif tag == 'TASKS':

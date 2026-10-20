@@ -279,3 +279,11 @@ a {
 .tcml img {
   max-width: 100%;
 }
+
+/* Scratch (Fase 7) */
+.tc-scratch { margin: 14px 0; text-align: center; }
+.tc-scratch iframe { max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: #000; }
+.tc-scratch-caption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+.tc-sprite { background: #FFF7E0; border: 1px solid #F2D98C; border-left: 5px solid var(--amber); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+.tc-sprite-name { font-weight: 800; }
+pre.scratchblocks { background: #fff; border: 1px dashed var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; font-family: var(--font-mono); font-size: .9rem; margin: 12px 0; }
