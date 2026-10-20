@@ -15,6 +15,8 @@ interface SavedMaterial {
   id: number;
   judul: string;
   kategori_id: number | null;
+  grup_dokumen: string | null;
+  jenis: string;
 }
 interface SavedQuiz {
   id: number;
@@ -22,6 +24,8 @@ interface SavedQuiz {
   tipe: string;
   kategori_id: number | null;
   jumlah_soal: number;
+  grup_dokumen: string | null;
+  jenis: string;
 }
 interface BankQuestion {
   id: number;
@@ -63,8 +67,11 @@ export default function BankPage() {
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
-  type TabKey = "materi" | "kuis" | "soal" | "template" | "jelajahi";
-  const [tab, setTab] = useState<TabKey>("materi");
+  type TabKey = "dokumen" | "soal" | "template" | "jelajahi";
+  const [tab, setTab] = useState<TabKey>("dokumen");
+  const [cariDok, setCariDok] = useState("");
+  const [filterTagDok, setFilterTagDok] = useState("");
+  const [filterKatDok, setFilterKatDok] = useState("");
   const [okJump, setOkJump] = useState<{ label: string; tab: TabKey } | null>(null);
   // form soal baru
   const [qTipe, setQTipe] = useState<"pilihan_ganda" | "teks">("pilihan_ganda");
@@ -97,8 +104,10 @@ export default function BankPage() {
       else {
         setUser(u);
         const awal = new URLSearchParams(window.location.search).get("tab");
-        if (awal && ["materi", "kuis", "soal", "template", "jelajahi"].includes(awal)) {
+        if (awal && ["dokumen", "soal", "template", "jelajahi"].includes(awal)) {
           setTab(awal as TabKey);
+        } else if (awal === "materi" || awal === "kuis") {
+          setTab("dokumen"); // tab lama digabung menjadi Dokumen
         }
         load();
         loadTemplates();
@@ -277,7 +286,7 @@ export default function BankPage() {
   async function copyMaterial(id: number) {
     try {
       await apiFetch(`/api/v1/bank/materials/${id}/copy`, { method: "POST" });
-      showOk("Materi disalin ke bank Anda.", { label: "Lihat Materi Saya →", tab: "materi" });
+      showOk("Materi disalin ke bank Anda.", { label: "Lihat Dokumen Saya →", tab: "dokumen" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyalin materi.");
@@ -287,11 +296,85 @@ export default function BankPage() {
   async function copyQuiz(id: number) {
     try {
       await apiFetch(`/api/v1/bank/quizzes/${id}/copy`, { method: "POST" });
-      showOk("Kuis disalin ke bank Anda.", { label: "Lihat Kuis Saya →", tab: "kuis" });
+      showOk("Kuis disalin ke bank Anda.", { label: "Lihat Dokumen Saya →", tab: "dokumen" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyalin kuis.");
     }
+  }
+
+  async function copyBankDocument(grup: string) {
+    try {
+      await apiFetch(`/api/v1/bank/documents/${grup}/copy`, { method: "POST" });
+      showOk("Dokumen disalin utuh ke bank Anda.", { label: "Lihat Dokumen Saya →", tab: "dokumen" });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyalin dokumen.");
+    }
+  }
+
+  async function deleteBankDocument(grup: string, judul: string) {
+    if (!window.confirm(`Hapus dokumen bank "${judul}" (semua bagiannya)?`)) return;
+    await apiFetch(`/api/v1/bank/documents/${grup}`, { method: "DELETE" });
+    showOk("Dokumen bank dihapus.");
+    load();
+  }
+
+  /** Dokumen bank terpadu: pasangan materi+kuis digabung jadi satu baris. */
+  function dokumenBankRows() {
+    interface BankBaris {
+      kunci: string;
+      grup: string | null;
+      judul: string;
+      jenis: string;
+      kategori_id: number | null;
+      material: SavedMaterial | null;
+      quizzes: SavedQuiz[];
+    }
+    const rows: BankBaris[] = [];
+    const terdaftar = new Set<string>();
+    for (const m of materials) {
+      if (m.grup_dokumen) {
+        if (terdaftar.has(m.grup_dokumen)) continue;
+        terdaftar.add(m.grup_dokumen);
+        rows.push({
+          kunci: `g-${m.grup_dokumen}`,
+          grup: m.grup_dokumen,
+          judul: m.judul,
+          jenis: m.jenis,
+          kategori_id: m.kategori_id,
+          material: m,
+          quizzes: quizzes.filter((q) => q.grup_dokumen === m.grup_dokumen),
+        });
+      } else {
+        rows.push({ kunci: `m-${m.id}`, grup: null, judul: m.judul, jenis: m.jenis, kategori_id: m.kategori_id, material: m, quizzes: [] });
+      }
+    }
+    for (const q of quizzes) {
+      if (!q.grup_dokumen) {
+        rows.push({ kunci: `q-${q.id}`, grup: null, judul: q.judul, jenis: q.jenis, kategori_id: q.kategori_id, material: null, quizzes: [q] });
+      } else if (!terdaftar.has(q.grup_dokumen)) {
+        terdaftar.add(q.grup_dokumen);
+        rows.push({
+          kunci: `g-${q.grup_dokumen}`,
+          grup: q.grup_dokumen,
+          judul: q.judul,
+          jenis: q.jenis,
+          kategori_id: q.kategori_id,
+          material: null,
+          quizzes: quizzes.filter((x) => x.grup_dokumen === q.grup_dokumen),
+        });
+      }
+    }
+    const kata = cariDok.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filterTagDok === "materi" && !r.material) return false;
+      if (filterTagDok === "kuis_pg" && !r.quizzes.some((q) => q.tipe === "pilihan_ganda")) return false;
+      if (filterTagDok === "esai" && !r.quizzes.some((q) => q.tipe === "teks")) return false;
+      if (filterKatDok && String(r.kategori_id ?? "") !== filterKatDok) return false;
+      if (kata && !r.judul.toLowerCase().includes(kata)) return false;
+      return true;
+    });
   }
 
   return (
@@ -334,89 +417,118 @@ export default function BankPage() {
         active={tab}
         onChange={(k) => gantiTab(k as TabKey)}
         tabs={[
-          { key: "materi", label: `📘 Materi (${materials.length})` },
-          { key: "kuis", label: `🧪 Kuis (${quizzes.length})` },
+          { key: "dokumen", label: `📁 Dokumen (${dokumenBankRows().length})` },
           { key: "soal", label: `🎲 Bank Soal (${questions.length})` },
           { key: "template", label: `🏫 Template (${templates.length})` },
           { key: "jelajahi", label: `🔍 Jelajahi (${exploreMats.length + exploreQuizzes.length})` },
         ]}
       />
 
-      <div style={{ display: tab === "materi" ? undefined : "none" }}>
+      <div style={{ display: tab === "dokumen" ? undefined : "none" }}>
       <div className="card" style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap" }}>
-          <h3>Materi Tersimpan ({materials.length})</h3>
-          <Link className="btn btn-sm btn-primary" href="/editor/materi?mode=bank">➕ Materi Bank Baru</Link>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <h3>Dokumen Tersimpan ({dokumenBankRows().length})</h3>
+          <Link className="btn btn-sm btn-primary" href="/editor/dokumen?mode=bank">➕ Dokumen Bank Baru</Link>
+        </div>
+        <p className="muted" style={{ margin: "4px 0 10px" }}>
+          Materi dan kuis kini satu kesatuan dokumen — dibedakan lewat tag isinya, bukan tab terpisah.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input
+            className="input"
+            style={{ maxWidth: 220 }}
+            placeholder="Cari judul dokumen..."
+            value={cariDok}
+            onChange={(e) => setCariDok(e.target.value)}
+          />
+          <select className="select" style={{ maxWidth: 180 }} value={filterTagDok} onChange={(e) => setFilterTagDok(e.target.value)}>
+            <option value="">Semua tag</option>
+            <option value="materi">📖 Materi</option>
+            <option value="kuis_pg">🧪 Kuis PG</option>
+            <option value="esai">📝 Esai</option>
+          </select>
+          <select className="select" style={{ maxWidth: 200 }} value={filterKatDok} onChange={(e) => setFilterKatDok(e.target.value)}>
+            <option value="">Semua kategori</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.nama}</option>
+            ))}
+          </select>
         </div>
         <table className="table" style={{ marginTop: 8 }}>
-          <thead><tr><th>Judul</th><th>Kategori</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Judul</th><th>Isi</th><th>Kategori</th><th>Aksi</th></tr></thead>
           <tbody>
-            {materials.map((m) => (
-              <tr key={m.id}>
-                <td><strong>{m.judul}</strong></td>
-                <td>{catName(m.kategori_id)}</td>
-                <td>
-                  <div className="row-actions">
-                    <Link className="btn btn-sm" href={`/editor/materi?bank=${m.id}`}>✏️ Edit</Link>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteMaterial(m)}>Hapus</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {materials.length === 0 && <tr><td colSpan={3} className="muted">Belum ada materi di bank. Simpan dari editor materi atau buat baru.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      </div>
-
-      <div style={{ display: tab === "kuis" ? undefined : "none" }}>
-      <div className="card">
-        <h3>Kuis Tersimpan ({quizzes.length})</h3>
-        <table className="table" style={{ marginTop: 8 }}>
-          <thead><tr><th>Judul</th><th>Tipe</th><th>Soal</th><th>Kategori</th><th>Aksi</th></tr></thead>
-          <tbody>
-            {quizzes.map((q) => (
-              <Fragment key={q.id}>
-              <tr>
-                <td><strong>{q.judul}</strong></td>
-                <td>{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai/Teks"}</td>
-                <td>{q.jumlah_soal}</td>
-                <td>{catName(q.kategori_id)}</td>
-                <td>
-                  <span className="row-actions">
-                    <button
-                      className="btn btn-sm"
-                      onClick={() => setExtractFor(extractFor === q.id ? null : q.id)}
-                    >
-                      📥 Ke Bank Soal
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteQuiz(q)}>Hapus</button>
-                  </span>
-                </td>
-              </tr>
-              {extractFor === q.id && (
-                <tr>
-                  <td colSpan={5} style={{ background: "#f6f3ff" }}>
-                    <span className="muted" style={{ marginRight: 8 }}>
-                      Masukkan soal kuis ini ke bank soal dengan kategori:
-                    </span>
-                    <span className="row-actions" style={{ display: "inline-flex" }}>
-                      <button className="btn btn-sm" onClick={() => extractToBankSoal(q, null)}>
-                        Ikuti kategori kuis ({catName(q.kategori_id)})
-                      </button>
-                      {categories.map((c) => (
-                        <button key={c.id} className="btn btn-sm" onClick={() => extractToBankSoal(q, c.id)}>
-                          {c.nama}
-                        </button>
+            {dokumenBankRows().map((r) => {
+              const kuisEkstrak = r.quizzes.find((q) => q.id === extractFor) ?? null;
+              return (
+                <Fragment key={r.kunci}>
+                  <tr>
+                    <td>
+                      <strong>{r.judul}</strong>
+                      {r.jenis === "tugas" && <> <span className="badge">📝 Tugas</span></>}
+                      {r.jenis === "ujian" && <> <span className="badge">🏆 Ujian</span></>}
+                      {r.jenis === "kuis" && r.material && <> <span className="badge">🧪 Kuis</span></>}
+                    </td>
+                    <td>
+                      {r.material && <span className="badge">📖 Materi</span>}{" "}
+                      {r.quizzes.map((q) => (
+                        <span key={q.id} className="badge">
+                          {q.tipe === "pilihan_ganda" ? `🧪 PG · ${q.jumlah_soal} soal` : `📝 Esai · ${q.jumlah_soal} soal`}
+                        </span>
                       ))}
-                      <button className="btn btn-sm btn-danger" onClick={() => setExtractFor(null)}>Batal</button>
-                    </span>
-                  </td>
-                </tr>
-              )}
-              </Fragment>
-            ))}
-            {quizzes.length === 0 && <tr><td colSpan={5} className="muted">Belum ada kuis di bank. Kuis dibuat dari pertemuan (modul kuis) lalu bisa disimpan ke bank.</td></tr>}
+                    </td>
+                    <td>{catName(r.kategori_id)}</td>
+                    <td>
+                      <div className="row-actions">
+                        {r.grup ? (
+                          <Link className="btn btn-sm" href={`/editor/dokumen?bank_grup=${r.grup}`}>✏️ Edit</Link>
+                        ) : r.material ? (
+                          <Link className="btn btn-sm" href={`/editor/materi?bank=${r.material.id}`}>✏️ Edit</Link>
+                        ) : null}
+                        {r.quizzes.map((q) => (
+                          <button
+                            key={q.id}
+                            className="btn btn-sm"
+                            onClick={() => setExtractFor(extractFor === q.id ? null : q.id)}
+                          >
+                            📥 {q.tipe === "pilihan_ganda" ? "PG" : "Esai"} ke Bank Soal
+                          </button>
+                        ))}
+                        {r.grup ? (
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteBankDocument(r.grup!, r.judul)}>Hapus</button>
+                        ) : r.material ? (
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteMaterial(r.material!)}>Hapus</button>
+                        ) : (
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteQuiz(r.quizzes[0])}>Hapus</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {kuisEkstrak && (
+                    <tr>
+                      <td colSpan={4} style={{ background: "#f6f3ff" }}>
+                        <span className="muted" style={{ marginRight: 8 }}>
+                          Masukkan soal {kuisEkstrak.tipe === "pilihan_ganda" ? "PG" : "esai"} "{kuisEkstrak.judul}" ke bank soal dengan kategori:
+                        </span>
+                        <span className="row-actions" style={{ display: "inline-flex" }}>
+                          <button className="btn btn-sm" onClick={() => extractToBankSoal(kuisEkstrak, null)}>
+                            Ikuti kategori dokumen ({catName(kuisEkstrak.kategori_id)})
+                          </button>
+                          {categories.map((c) => (
+                            <button key={c.id} className="btn btn-sm" onClick={() => extractToBankSoal(kuisEkstrak, c.id)}>
+                              {c.nama}
+                            </button>
+                          ))}
+                          <button className="btn btn-sm btn-danger" onClick={() => setExtractFor(null)}>Batal</button>
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {dokumenBankRows().length === 0 && (
+              <tr><td colSpan={4} className="muted">Tidak ada dokumen yang cocok. Buat dokumen bank baru, atau simpan dokumen dari halaman kelas.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -596,13 +708,21 @@ export default function BankPage() {
         {exploreMats.map((m) => (
           <div key={`m-${m.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
             <span>📄 {m.judul} <span className="muted">— oleh {m.pemilik.nama_lengkap ?? m.pemilik.username}</span></span>
-            <button className="btn btn-sm" onClick={() => copyMaterial(m.id)}>📥 Salin</button>
+            {m.grup_dokumen ? (
+              <button className="btn btn-sm" onClick={() => copyBankDocument(m.grup_dokumen!)}>📥 Salin Dokumen Utuh</button>
+            ) : (
+              <button className="btn btn-sm" onClick={() => copyMaterial(m.id)}>📥 Salin</button>
+            )}
           </div>
         ))}
         {exploreQuizzes.map((q) => (
           <div key={`q-${q.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
             <span>🧪 {q.judul} <span className="muted">({q.jumlah_soal} soal) — oleh {q.pemilik.nama_lengkap ?? q.pemilik.username}</span></span>
-            <button className="btn btn-sm" onClick={() => copyQuiz(q.id)}>📥 Salin</button>
+            {q.grup_dokumen ? (
+              <button className="btn btn-sm" onClick={() => copyBankDocument(q.grup_dokumen!)}>📥 Salin Dokumen Utuh</button>
+            ) : (
+              <button className="btn btn-sm" onClick={() => copyQuiz(q.id)}>📥 Salin</button>
+            )}
           </div>
         ))}
         {exploreMats.length === 0 && exploreQuizzes.length === 0 && (

@@ -150,6 +150,11 @@ class Material(Base, TimestampMixin):
     teks_mentah: Mapped[str] = mapped_column(Text, nullable=False)
     rendered_html: Mapped[Optional[str]] = mapped_column(Text)  # cache hasil render TCML
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Dokumen terpadu (2026-10-21): materi & kuis yang lahir dari satu dokumen
+    # berbagi grup_dokumen; jenis = perilaku dokumen (materi|tugas|kuis|ujian).
+    grup_dokumen: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    jenis: Mapped[str] = mapped_column(String(20), default="materi")
+    tenggat: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     meeting: Mapped["Meeting"] = relationship(back_populates="materials")
     files: Mapped[list["MaterialFile"]] = relationship(
@@ -186,6 +191,8 @@ class Quiz(Base, TimestampMixin):
     dibuka_pada: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     ditutup_pada: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     tampilkan_kunci: Mapped[bool] = mapped_column(Boolean, default=True)
+    grup_dokumen: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    jenis: Mapped[str] = mapped_column(String(20), default="kuis")
 
     meeting: Mapped["Meeting"] = relationship(back_populates="quizzes")
     questions: Mapped[list["Question"]] = relationship(
@@ -277,6 +284,8 @@ class SavedMaterial(Base):
     # bank ini disimpan darinya. Sekali tersimpan, materi tidak bisa disimpan
     # lagi walau diedit (keputusan Qualze). Salinan antar guru: NULL.
     asal_id: Mapped[Optional[int]] = mapped_column(Integer)
+    grup_dokumen: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    jenis: Mapped[str] = mapped_column(String(20), default="materi")
 
 
 class SavedQuiz(Base):
@@ -290,6 +299,8 @@ class SavedQuiz(Base):
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     kategori_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saved_categories.id"))
     asal_id: Mapped[Optional[int]] = mapped_column(Integer)  # id kuis pertemuan asal (lihat SavedMaterial)
+    grup_dokumen: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    jenis: Mapped[str] = mapped_column(String(20), default="kuis")
 
 
 class BankQuestion(Base, TimestampMixin):

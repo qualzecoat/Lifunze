@@ -19,11 +19,13 @@ KIND_LABEL = {
     "materi": "materi/latihan/proyek",
     "kuis_pg": "kuis pilihan ganda",
     "kuis_esai": "kuis esai",
+    "dokumen": "dokumen terpadu (materi + kuis)",
 }
 KIND_ROOTS = {
     "materi": {"MATERIAL", "EXERCISE", "PROJECT"},
     "kuis_pg": {"QUIZ"},
     "kuis_esai": {"QUIZ"},
+    "dokumen": {"MATERIAL", "EXERCISE", "PROJECT", "QUIZ"},
 }
 KIND_QUIZ_TIPE = {"kuis_pg": "pilihan_ganda", "kuis_esai": "teks"}
 
@@ -384,4 +386,56 @@ def validate_document(db: Session, pack: ParserPack, kind: str, teks: str) -> di
         "judul": judul,
         "valid": len(errors) == 0,
         "errors": errors,
+    }
+
+
+def validate_bundle_document(db: Session, pack: ParserPack, teks: str) -> dict:
+    """Validasi 2 lapis DOKUMEN TERPADU (satu teks: bagian materi + kuis).
+
+    Lapis 1: tiap bagian harus lolos parser-nya (pemecahan memakai
+    tcml.document.split_document; bagian materi diperiksa parse_material,
+    bagian kuis sudah diperiksa parse_quiz_v2 oleh pemecah).
+    Lapis 2: root tiap bagian harus diizinkan paket; semua tag yang dipakai
+    harus berasal dari modul/tag pilihan paket.
+    """
+    from .tcml.document import split_document
+
+    parts = split_document(teks)
+    errors: list[dict] = [
+        {"lapis": "sintaks", "line": e.get("line"), "message": e["message"]}
+        for e in parts["errors"]
+    ]
+    if not any(parts[k] for k in ("materi", "kuis_pg", "kuis_esai")):
+        errors.append(
+            {"lapis": "skema", "message": "Tidak ada bagian materi maupun kuis yang terbaca dari dokumen."}
+        )
+
+    if parts["materi"]:
+        m = re.search(r"\[(MATERIAL|EXERCISE|PROJECT)\]", parts["materi"])
+        root_materi = m.group(1) if m else None
+        if pack.allowed_roots and root_materi not in pack.allowed_roots:
+            errors.append(
+                {"lapis": "skema", "message": f"Root [{root_materi}] tidak diizinkan paket ini (diizinkan: {', '.join(pack.allowed_roots)})."}
+            )
+        res = parse_material(parts["materi"])
+        if not res["success"]:
+            for e in res["errors"]:
+                errors.append({"lapis": "sintaks", "line": e.get("line"), "message": e["message"]})
+    if (parts["kuis_pg"] or parts["kuis_esai"]) and pack.allowed_roots and "QUIZ" not in pack.allowed_roots:
+        errors.append(
+            {"lapis": "skema", "message": "Dokumen berisi kuis, tetapi root [QUIZ] tidak diizinkan paket ini."}
+        )
+
+    allowed = allowed_tags_for_pack(db, pack)
+    for tag in sorted(extract_tags(teks) - allowed):
+        errors.append(
+            {"lapis": "skema", "message": f"Tag [{tag}] tidak termasuk modul paket ini."}
+        )
+
+    judul = _extract_title(parts["materi"] or "") or "Dokumen hasil generate"
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "judul": judul,
+        "parts": parts,
     }

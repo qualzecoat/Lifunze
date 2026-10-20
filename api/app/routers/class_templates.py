@@ -106,7 +106,13 @@ def save_template(
                     }
                 )
             materials_data.append(
-                {"judul": mt.judul, "teks_mentah": mt.teks_mentah, "files": files_data}
+                {
+                    "judul": mt.judul,
+                    "teks_mentah": mt.teks_mentah,
+                    "grup_dokumen": mt.grup_dokumen,
+                    "jenis": mt.jenis,
+                    "files": files_data,
+                }
             )
         quizzes_data = [
             {
@@ -117,6 +123,8 @@ def save_template(
                 "acak_soal": q.acak_soal,
                 "acak_opsi": q.acak_opsi,
                 "tampilkan_kunci": q.tampilkan_kunci,
+                "grup_dokumen": q.grup_dokumen,
+                "jenis": q.jenis,
             }
             for q in db.query(Quiz).filter(Quiz.meeting_id == m.id).order_by(Quiz.id)
         ]
@@ -198,6 +206,17 @@ def instantiate_template(
         )
         db.add(meeting)
         db.flush()
+        # Pasangan dokumen terpadu: grup lama dipetakan ke grup baru agar
+        # materi & kuis yang satu dokumen tetap berpasangan di kelas hasil.
+        grup_map: dict[str, str] = {}
+
+        def _grup_baru(grup_lama):
+            if not grup_lama:
+                return None
+            if grup_lama not in grup_map:
+                grup_map[grup_lama] = uuid.uuid4().hex
+            return grup_map[grup_lama]
+
         for mtdata in mdata.get("materials", []):
             parsed = parse_material(mtdata.get("teks_mentah", ""))
             material = Material(
@@ -206,6 +225,9 @@ def instantiate_template(
                 teks_mentah=mtdata.get("teks_mentah", ""),
                 rendered_html=parsed["content"] if parsed["success"] else "",
                 dibuat_oleh=user.id,
+                grup_dokumen=_grup_baru(mtdata.get("grup_dokumen")),
+                jenis=mtdata.get("jenis") or "materi",
+                tenggat=None,  # tenggat tidak disalin
             )
             db.add(material)
             db.flush()
@@ -240,6 +262,8 @@ def instantiate_template(
                 acak_opsi=bool(qdata.get("acak_opsi")),
                 tampilkan_kunci=bool(qdata.get("tampilkan_kunci", True)),
                 dibuat_oleh=user.id,
+                grup_dokumen=_grup_baru(qdata.get("grup_dokumen")),
+                jenis=qdata.get("jenis") or "kuis",
             )
             db.add(quiz)
             db.flush()

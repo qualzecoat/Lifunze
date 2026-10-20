@@ -28,6 +28,7 @@ from ..models import (
     AttemptAnswer,
     BankQuestion,
     Enrollment,
+    Material,
     Question,
     QuestionOption,
     Quiz,
@@ -171,6 +172,14 @@ def _apply_settings(quiz: Quiz, body: QuizIn) -> None:
 
 
 def _quiz_full_out(db: Session, quiz: Quiz) -> dict:
+    dokumen_materi_id = None
+    if quiz.grup_dokumen:
+        pasangan = (
+            db.query(Material)
+            .filter(Material.grup_dokumen == quiz.grup_dokumen)
+            .first()
+        )
+        dokumen_materi_id = pasangan.id if pasangan else None
     return {
         "id": quiz.id,
         "meeting_id": quiz.meeting_id,
@@ -178,6 +187,9 @@ def _quiz_full_out(db: Session, quiz: Quiz) -> dict:
         "tipe": quiz.tipe,
         "teks_mentah": quiz.teks_mentah,
         "dibuat_oleh": quiz.dibuat_oleh,
+        "grup_dokumen": quiz.grup_dokumen,
+        "jenis": quiz.jenis,
+        "dokumen_materi_id": dokumen_materi_id,
         **quiz_settings_out(quiz),
         "questions": [question_full_out(q) for q in _questions_of(db, quiz)],
     }
@@ -275,11 +287,19 @@ def get_one_quiz(
         alasan = "Kuis sudah ditutup."
     elif my_attempt is not None and my_attempt.status in ("submitted", "graded"):
         alasan = "Anda sudah mengerjakan kuis ini."
+    pasangan_materi = (
+        db.query(Material).filter(Material.grup_dokumen == quiz.grup_dokumen).first()
+        if quiz.grup_dokumen
+        else None
+    )
     return {
         "id": quiz.id,
         "meeting_id": quiz.meeting_id,
         "judul": quiz.judul,
         "tipe": quiz.tipe,
+        "grup_dokumen": quiz.grup_dokumen,
+        "jenis": quiz.jenis,
+        "dokumen_materi_id": pasangan_materi.id if pasangan_materi else None,
         **quiz_settings_out(quiz),
         "jumlah_soal": len(questions),
         "total_bobot": sum(q.bobot for q in questions),

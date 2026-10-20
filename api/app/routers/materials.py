@@ -74,6 +74,9 @@ def material_out(m: Material, subject_id: int | None = None) -> dict:
         "teks_mentah": m.teks_mentah,
         "rendered_html": m.rendered_html,
         "dibuat_oleh": m.dibuat_oleh,
+        "grup_dokumen": m.grup_dokumen,
+        "jenis": m.jenis,
+        "tenggat": m.tenggat.isoformat() if m.tenggat else None,
         "files": [
             {
                 "id": f.id,
@@ -195,6 +198,28 @@ def get_one_material(
     require_subject_view(db, user, subject)
     out = material_out(m, subject.id)
     out["navigasi"] = _material_navigation(db, subject.id, m.id)
+    if m.grup_dokumen:
+        from ..models import Quiz
+
+        pasangan = (
+            db.query(Quiz)
+            .filter(Quiz.grup_dokumen == m.grup_dokumen)
+            .order_by(Quiz.id)
+            .all()
+        )
+        out["dokumen_kuis"] = [
+            {
+                "id": q.id,
+                "judul": q.judul,
+                "tipe": q.tipe,
+                "dibuka_pada": q.dibuka_pada.isoformat() if q.dibuka_pada else None,
+                "ditutup_pada": q.ditutup_pada.isoformat() if q.ditutup_pada else None,
+                "durasi_menit": q.durasi_menit,
+            }
+            for q in pasangan
+        ]
+    else:
+        out["dokumen_kuis"] = []
     return out
 
 

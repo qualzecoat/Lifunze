@@ -11,6 +11,8 @@ interface MaterialBrief {
   judul: string;
   jumlah_file: number;
   di_bank: boolean;
+  grup_dokumen: string | null;
+  jenis: string;
 }
 interface QuizBrief {
   id: number;
@@ -18,6 +20,8 @@ interface QuizBrief {
   tipe: string;
   jumlah_soal: number;
   di_bank: boolean;
+  grup_dokumen: string | null;
+  jenis: string;
 }
 interface Meeting {
   id: number;
@@ -47,12 +51,64 @@ interface SavedMaterial {
   id: number;
   judul: string;
   kategori_id: number | null;
+  grup_dokumen: string | null;
+  jenis: string;
 }
 interface SavedQuiz {
   id: number;
   judul: string;
   tipe: string;
   jumlah_soal: number;
+  kategori_id: number | null;
+  grup_dokumen: string | null;
+  jenis: string;
+}
+
+/** Satu baris dokumen di daftar isi pertemuan: materi + kuis pasangannya. */
+interface BarisDokumen {
+  kunci: string;
+  grup: string | null;
+  judul: string;
+  jenis: string;
+  material: MaterialBrief | null;
+  quizzes: QuizBrief[];
+}
+
+function kelompokkanDokumen(m: Meeting): BarisDokumen[] {
+  const rows: BarisDokumen[] = [];
+  const grupTerdaftar = new Set<string>();
+  for (const mt of m.materials) {
+    if (mt.grup_dokumen) {
+      if (grupTerdaftar.has(mt.grup_dokumen)) continue;
+      grupTerdaftar.add(mt.grup_dokumen);
+      rows.push({
+        kunci: `g-${mt.grup_dokumen}`,
+        grup: mt.grup_dokumen,
+        judul: mt.judul,
+        jenis: mt.jenis,
+        material: mt,
+        quizzes: m.quizzes.filter((q) => q.grup_dokumen === mt.grup_dokumen),
+      });
+    } else {
+      rows.push({ kunci: `m-${mt.id}`, grup: null, judul: mt.judul, jenis: mt.jenis, material: mt, quizzes: [] });
+    }
+  }
+  for (const q of m.quizzes) {
+    if (!q.grup_dokumen) {
+      rows.push({ kunci: `q-${q.id}`, grup: null, judul: q.judul, jenis: q.jenis, material: null, quizzes: [q] });
+    } else if (!grupTerdaftar.has(q.grup_dokumen)) {
+      grupTerdaftar.add(q.grup_dokumen);
+      rows.push({
+        kunci: `g-${q.grup_dokumen}`,
+        grup: q.grup_dokumen,
+        judul: q.judul,
+        jenis: q.jenis,
+        material: null,
+        quizzes: m.quizzes.filter((x) => x.grup_dokumen === q.grup_dokumen),
+      });
+    }
+  }
+  return rows;
 }
 
 export default function KelasDetailPage() {
@@ -67,7 +123,10 @@ export default function KelasDetailPage() {
   const [bankItems, setBankItems] = useState<SavedMaterial[]>([]);
   const [bankFor, setBankFor] = useState<number | null>(null);
   const [bankQuizzes, setBankQuizzes] = useState<SavedQuiz[]>([]);
-  const [bankQuizFor, setBankQuizFor] = useState<number | null>(null);
+  const [bankKategori, setBankKategori] = useState<{ id: number; nama: string }[]>([]);
+  const [bankFilterKategori, setBankFilterKategori] = useState("");
+  const [bankFilterTag, setBankFilterTag] = useState("");
+  const [bankCari, setBankCari] = useState("");
   const [composeFor, setComposeFor] = useState<number | null>(null);
   const [cJudul, setCJudul] = useState("");
   const [cJumlah, setCJumlah] = useState("5");
@@ -253,6 +312,8 @@ export default function KelasDetailPage() {
     }
     try {
       setBankItems(await apiFetch<SavedMaterial[]>("/api/v1/bank/materials"));
+      setBankQuizzes(await apiFetch<SavedQuiz[]>("/api/v1/bank/quizzes"));
+      setBankKategori(await apiFetch<{ id: number; nama: string }[]>("/api/v1/bank/categories"));
       setBankFor(meetingId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat bank.");
@@ -270,28 +331,106 @@ export default function KelasDetailPage() {
     }
   }
 
-  async function openBankQuiz(meetingId: number) {
-    if (bankQuizFor === meetingId) {
-      setBankQuizFor(null);
-      return;
-    }
-    try {
-      setBankQuizzes(await apiFetch<SavedQuiz[]>("/api/v1/bank/quizzes"));
-      setBankQuizFor(meetingId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat bank kuis.");
-    }
-  }
-
   async function useBankQuiz(meetingId: number, savedId: number) {
     try {
       await apiFetch(`/api/v1/meetings/${meetingId}/quizzes/from-bank/${savedId}`, { method: "POST" });
       setOk("Kuis dari bank ditambahkan (pengaturan default — atur waktu/durasi lewat Edit).");
-      setBankQuizFor(null);
+      setBankFor(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memakai kuis bank.");
     }
+  }
+
+  async function useBankDocument(meetingId: number, grup: string) {
+    try {
+      await apiFetch(`/api/v1/bank/documents/${grup}/use`, {
+        method: "POST",
+        body: { meeting_id: meetingId },
+      });
+      setOk("Dokumen dari bank ditambahkan utuh (materi + kuisnya).");
+      setBankFor(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memakai dokumen bank.");
+    }
+  }
+
+  /** Daftar dokumen bank terpadu (pasangan digabung) + filter tag/kategori/cari. */
+  function bankDokumenRows() {
+    interface BankBaris {
+      kunci: string;
+      grup: string | null;
+      judul: string;
+      kategori_id: number | null;
+      material: SavedMaterial | null;
+      quizzes: SavedQuiz[];
+    }
+    const rows: BankBaris[] = [];
+    const terdaftar = new Set<string>();
+    for (const b of bankItems) {
+      if (b.grup_dokumen) {
+        if (terdaftar.has(b.grup_dokumen)) continue;
+        terdaftar.add(b.grup_dokumen);
+        rows.push({
+          kunci: `g-${b.grup_dokumen}`,
+          grup: b.grup_dokumen,
+          judul: b.judul,
+          kategori_id: b.kategori_id,
+          material: b,
+          quizzes: bankQuizzes.filter((q) => q.grup_dokumen === b.grup_dokumen),
+        });
+      } else {
+        rows.push({ kunci: `m-${b.id}`, grup: null, judul: b.judul, kategori_id: b.kategori_id, material: b, quizzes: [] });
+      }
+    }
+    for (const q of bankQuizzes) {
+      if (!q.grup_dokumen) {
+        rows.push({ kunci: `q-${q.id}`, grup: null, judul: q.judul, kategori_id: q.kategori_id, material: null, quizzes: [q] });
+      } else if (!terdaftar.has(q.grup_dokumen)) {
+        terdaftar.add(q.grup_dokumen);
+        rows.push({
+          kunci: `g-${q.grup_dokumen}`,
+          grup: q.grup_dokumen,
+          judul: q.judul,
+          kategori_id: q.kategori_id,
+          material: null,
+          quizzes: bankQuizzes.filter((x) => x.grup_dokumen === q.grup_dokumen),
+        });
+      }
+    }
+    return rows.filter((r) => {
+      if (bankFilterTag === "materi" && !r.material) return false;
+      if (bankFilterTag === "kuis_pg" && !r.quizzes.some((q) => q.tipe === "pilihan_ganda")) return false;
+      if (bankFilterTag === "esai" && !r.quizzes.some((q) => q.tipe === "teks")) return false;
+      if (bankFilterKategori && String(r.kategori_id ?? "") !== bankFilterKategori) return false;
+      if (bankCari && !r.judul.toLowerCase().includes(bankCari.toLowerCase())) return false;
+      return true;
+    });
+  }
+
+  async function saveDocumentBank(row: BarisDokumen) {
+    if (!row.grup) return;
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/documents/${row.grup}/save-to-bank`, { method: "POST", body: {} });
+      setOk(`Dokumen "${row.judul}" tersimpan ke bank.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan ke bank.");
+    }
+  }
+
+  async function deleteDocumentRow(row: BarisDokumen) {
+    if (!row.grup) return;
+    const bagian = [
+      row.material ? "materi" : null,
+      row.quizzes.length ? `${row.quizzes.length} kuis` : null,
+    ].filter(Boolean).join(" + ");
+    if (!window.confirm(`Hapus dokumen "${row.judul}" (${bagian})? PERINGATAN: hasil pengerjaan & pengumpulan siswa di dalamnya ikut terhapus.`)) return;
+    await apiFetch(`/api/v1/documents/${row.grup}`, { method: "DELETE" });
+    load();
   }
 
   async function openCompose(meetingId: number) {
@@ -566,71 +705,125 @@ export default function KelasDetailPage() {
           {meetingOpen(m, idx) && (<>
           {m.deskripsi && <p className="muted">{m.deskripsi}</p>}
           <div style={{ marginTop: 10 }}>
-            {m.materials.map((mt) => (
-              <div key={mt.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                <Link href={`/materi/${mt.id}`}>📄 {mt.judul}</Link>
-                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {mt.jumlah_file > 0 && <span className="muted">📎 {mt.jumlah_file}</span>}
+            {kelompokkanDokumen(m).map((row) => {
+              const hrefUtama = row.material ? `/materi/${row.material.id}` : `/kuis/${row.quizzes[0].id}`;
+              const semuaDiBank =
+                (row.material ? row.material.di_bank : true) &&
+                row.quizzes.every((q) => q.di_bank);
+              return (
+                <div key={row.kunci} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)", gap: 8, flexWrap: "wrap" }}>
+                  <span>
+                    <Link href={hrefUtama}>📄 {row.judul}</Link>{" "}
+                    {row.material && <span className="badge">📖 Materi</span>}{" "}
+                    {row.quizzes.map((q) => (
+                      <span key={q.id} className="badge">
+                        {q.tipe === "pilihan_ganda" ? `🧪 Kuis PG · ${q.jumlah_soal} soal` : `📝 Esai · ${q.jumlah_soal} soal`}
+                      </span>
+                    ))}{" "}
+                    {row.jenis === "tugas" && <span className="badge">📝 Tugas</span>}
+                    {row.jenis === "ujian" && <span className="badge">🏆 Ujian</span>}
+                    {row.jenis === "kuis" && row.material && <span className="badge">🧪 Kuis</span>}
+                    {row.material && row.material.jumlah_file > 0 && (
+                      <span className="muted"> 📎 {row.material.jumlah_file}</span>
+                    )}
+                  </span>
                   {kelola && (
-                    <>
-                      <Link className="btn btn-sm" href={`/editor/materi?material=${mt.id}`}>✏️ Edit</Link>
-                      {!mt.di_bank && (
-                        <button className="btn btn-sm" onClick={() => saveMaterialBank(mt)}>📚 Simpan ke Bank</button>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {row.grup ? (
+                        <>
+                          <Link className="btn btn-sm" href={`/editor/dokumen?grup=${row.grup}&kelas=${sid}`}>✏️ Edit</Link>
+                          {!semuaDiBank && (
+                            <button className="btn btn-sm" onClick={() => saveDocumentBank(row)}>📚 Simpan ke Bank</button>
+                          )}
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteDocumentRow(row)}>🗑️ Hapus</button>
+                        </>
+                      ) : row.material ? (
+                        <>
+                          <Link className="btn btn-sm" href={`/editor/materi?material=${row.material.id}`}>✏️ Edit</Link>
+                          {!row.material.di_bank && (
+                            <button className="btn btn-sm" onClick={() => saveMaterialBank(row.material!)}>📚 Simpan ke Bank</button>
+                          )}
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteMaterialRow(row.material!)}>🗑️ Hapus</button>
+                        </>
+                      ) : (
+                        <>
+                          <Link className="btn btn-sm" href={`/editor/kuis?quiz=${row.quizzes[0].id}&subject=${sid}&meeting=${m.id}`}>✏️ Edit</Link>
+                          {!row.quizzes[0].di_bank && (
+                            <button className="btn btn-sm" onClick={() => saveQuizBank(row.quizzes[0])}>📚 Simpan ke Bank</button>
+                          )}
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteQuizRow(row.quizzes[0])}>🗑️ Hapus</button>
+                        </>
                       )}
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteMaterialRow(mt)}>🗑️ Hapus</button>
-                    </>
+                    </span>
                   )}
-                </span>
-              </div>
-            ))}
-            {m.materials.length === 0 && <p className="muted">Belum ada materi.</p>}
-          </div>
-          <div style={{ marginTop: 10 }}>
-            {m.quizzes.map((q) => (
-              <div key={q.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                <Link href={`/kuis/${q.id}`}>🧪 {q.judul}</Link>
-                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span className="muted">{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"} · {q.jumlah_soal} soal</span>
-                  {kelola && (
-                    <>
-                      <Link className="btn btn-sm" href={`/editor/kuis?quiz=${q.id}&subject=${sid}&meeting=${m.id}`}>✏️ Edit</Link>
-                      {!q.di_bank && (
-                        <button className="btn btn-sm" onClick={() => saveQuizBank(q)}>📚 Simpan ke Bank</button>
-                      )}
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteQuizRow(q)}>🗑️ Hapus</button>
-                    </>
-                  )}
-                </span>
-              </div>
-            ))}
+                </div>
+              );
+            })}
+            {m.materials.length === 0 && m.quizzes.length === 0 && (
+              <p className="muted">Belum ada konten. Tambahkan lewat tombol ➕ Konten Baru di bawah.</p>
+            )}
           </div>
           {kelola && (
             <div style={{ marginTop: 12 }}>
               <div className="row-actions">
-                <Link className="btn btn-sm btn-primary" href={`/editor/materi?meeting=${m.id}&kelas=${sid}`}>➕ Materi Baru</Link>
+                <Link className="btn btn-sm btn-primary" href={`/editor/dokumen?meeting=${m.id}&kelas=${sid}`}>➕ Konten Baru</Link>
                 <button className="btn btn-sm" onClick={() => openBank(m.id)}>📚 Ambil dari Bank</button>
-                <Link className="btn btn-sm btn-primary" href={`/editor/kuis?meeting=${m.id}&kelas=${sid}`}>➕ Kuis Baru</Link>
-                <button className="btn btn-sm" onClick={() => openBankQuiz(m.id)}>🧪 Kuis dari Bank</button>
                 <button className="btn btn-sm" onClick={() => openCompose(m.id)}>🎲 Susun dari Bank Soal</button>
               </div>
               {bankFor === m.id && (
-                <div style={{ marginTop: 10 }}>
-                  {bankItems.length === 0 && <p className="muted">Bank materi Anda kosong.</p>}
-                  {bankItems.map((b) => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                      <span>{b.judul}</span>
-                      <button className="btn btn-sm" onClick={() => useBank(m.id, b.id)}>Pakai</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {bankQuizFor === m.id && (
-                <div style={{ marginTop: 10 }}>
-                  {bankQuizzes.length === 0 && <p className="muted">Bank kuis Anda kosong.</p>}
-                  {bankQuizzes.map((b) => (
-                    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                      <span>🧪 {b.judul} <span className="muted">({b.jumlah_soal} soal)</span></span>
-                      <button className="btn btn-sm" onClick={() => useBankQuiz(m.id, b.id)}>Pakai</button>
+                <div style={{ marginTop: 10 }} className="card">
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                    <input
+                      className="input"
+                      style={{ maxWidth: 220 }}
+                      placeholder="Cari judul dokumen..."
+                      value={bankCari}
+                      onChange={(e) => setBankCari(e.target.value)}
+                    />
+                    <select className="select" style={{ maxWidth: 180 }} value={bankFilterTag} onChange={(e) => setBankFilterTag(e.target.value)}>
+                      <option value="">Semua tag</option>
+                      <option value="materi">📖 Materi</option>
+                      <option value="kuis_pg">🧪 Kuis PG</option>
+                      <option value="esai">📝 Esai</option>
+                    </select>
+                    <select className="select" style={{ maxWidth: 200 }} value={bankFilterKategori} onChange={(e) => setBankFilterKategori(e.target.value)}>
+                      <option value="">Semua kategori</option>
+                      {bankKategori.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nama}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {bankDokumenRows().length === 0 && (
+                    <p className="muted">Tidak ada dokumen bank yang cocok (bank Anda mungkin masih kosong).</p>
+                  )}
+                  {bankDokumenRows().map((b) => (
+                    <div key={b.kunci} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", gap: 8, flexWrap: "wrap" }}>
+                      <span>
+                        {b.judul}{" "}
+                        {b.material && <span className="badge">📖 Materi</span>}{" "}
+                        {b.quizzes.map((q) => (
+                          <span key={q.id} className="badge">
+                            {q.tipe === "pilihan_ganda" ? `🧪 PG · ${q.jumlah_soal} soal` : `📝 Esai · ${q.jumlah_soal} soal`}
+                          </span>
+                        ))}{" "}
+                        {b.kategori_id && (
+                          <span className="muted">
+                            · {bankKategori.find((c) => c.id === b.kategori_id)?.nama ?? "kategori"}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() =>
+                          b.grup
+                            ? useBankDocument(m.id, b.grup)
+                            : b.material
+                              ? useBank(m.id, b.material.id)
+                              : useBankQuiz(m.id, b.quizzes[0].id)
+                        }
+                      >
+                        Pakai
+                      </button>
                     </div>
                   ))}
                 </div>

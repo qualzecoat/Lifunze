@@ -21,6 +21,17 @@ interface Material {
   rendered_html: string | null;
   dibuat_oleh: number;
   files: MaterialFile[];
+  grup_dokumen?: string | null;
+  jenis?: string;
+  tenggat?: string | null;
+  dokumen_kuis?: {
+    id: number;
+    judul: string;
+    tipe: string;
+    dibuka_pada: string | null;
+    ditutup_pada: string | null;
+    durasi_menit: number | null;
+  }[];
   navigasi?: {
     sebelumnya: { id: number; judul: string } | null;
     berikutnya: { id: number; judul: string } | null;
@@ -159,7 +170,11 @@ export default function MateriPage() {
             {material.subject_id && <Link href={`/kelas/${material.subject_id}`}>← Kembali ke Kelas</Link>}
             {kelola && (
               <span className="row-actions">
-                <Link className="btn btn-sm" href={`/editor/materi?material=${material.id}`}>✏️ Edit Materi</Link>
+                {material.grup_dokumen ? (
+                  <Link className="btn btn-sm" href={`/editor/dokumen?grup=${material.grup_dokumen}`}>✏️ Edit Dokumen</Link>
+                ) : (
+                  <Link className="btn btn-sm" href={`/editor/materi?material=${material.id}`}>✏️ Edit Materi</Link>
+                )}
                 <button className="btn btn-sm btn-danger" onClick={deleteMaterial}>Hapus</button>
               </span>
             )}
@@ -201,6 +216,38 @@ export default function MateriPage() {
               </div>
             )}
           </div>
+          {material.jenis === "tugas" && material.tenggat && (
+            <p style={{ marginTop: 10 }}>
+              <span className="badge">⏰ Tenggat pengumpulan: {new Date(material.tenggat).toLocaleString("id-ID")}</span>
+            </p>
+          )}
+          {material.dokumen_kuis && material.dokumen_kuis.length > 0 && (
+            <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--primary)" }}>
+              <h3 style={{ marginTop: 0 }}>🧪 Kuis dalam Dokumen Ini</h3>
+              {material.dokumen_kuis.map((q) => (
+                <div
+                  key={q.id}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0" }}
+                >
+                  <span>
+                    <strong>{q.judul}</strong>{" "}
+                    <span className="muted">
+                      · {q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"}
+                      {q.durasi_menit ? ` · ${q.durasi_menit} menit` : ""}
+                      {q.dibuka_pada ? ` · dibuka ${new Date(q.dibuka_pada).toLocaleString("id-ID")}` : ""}
+                      {q.ditutup_pada ? ` · ditutup ${new Date(q.ditutup_pada).toLocaleString("id-ID")}` : ""}
+                    </span>
+                  </span>
+                  <Link className="btn btn-primary btn-sm" href={`/kuis/${q.id}`}>
+                    {user.role === "siswa" ? "Mulai Kuis →" : "Buka Kuis →"}
+                  </Link>
+                </div>
+              ))}
+              <p className="muted" style={{ marginTop: 6 }}>
+                Kuis ini satu dokumen dengan materi di atas — nilainya tercatat terpisah di progress kelas.
+              </p>
+            </div>
+          )}
           <SubmissionPanel materialId={material.id} user={user} kelola={!!kelola} />
           {material.navigasi && (material.navigasi.sebelumnya || material.navigasi.berikutnya) && (
             <nav

@@ -74,6 +74,8 @@ def meeting_out(db: Session, m: Meeting) -> dict:
                 "judul": mt.judul,
                 "jumlah_file": len(mt.files),
                 "di_bank": mt.id in materi_di_bank,
+                "grup_dokumen": mt.grup_dokumen,
+                "jenis": mt.jenis,
                 "created_at": mt.created_at.isoformat() if mt.created_at else None,
             }
             for mt in materials
@@ -85,6 +87,8 @@ def meeting_out(db: Session, m: Meeting) -> dict:
                 "tipe": q.tipe,
                 "jumlah_soal": len(q.questions),
                 "di_bank": q.id in kuis_di_bank,
+                "grup_dokumen": q.grup_dokumen,
+                "jenis": q.jenis,
             }
             for q in quizzes
         ],

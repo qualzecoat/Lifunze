@@ -52,6 +52,8 @@ interface QuizPublic {
   bisa_mulai: boolean;
   alasan: string | null;
   attempt_saya: { id: number; status: string; skor: number | null } | null;
+  grup_dokumen?: string | null;
+  dokumen_materi_id?: number | null;
 }
 interface QuizFull {
   id: number;
@@ -59,6 +61,8 @@ interface QuizFull {
   tipe: string;
   meeting_id: number;
   durasi_menit: number | null;
+  grup_dokumen?: string | null;
+  dokumen_materi_id?: number | null;
   questions: {
     id: number;
     pertanyaan: string;
@@ -238,6 +242,13 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
       </p>
       {quiz.dibuka_pada && <p className="muted">Dibuka: {new Date(quiz.dibuka_pada).toLocaleString("id-ID")}</p>}
       {quiz.ditutup_pada && <p className="muted">Ditutup: {new Date(quiz.ditutup_pada).toLocaleString("id-ID")}</p>}
+      {quiz.dokumen_materi_id && (
+        <p style={{ marginTop: 8 }}>
+          <Link className="btn btn-sm" href={`/materi/${quiz.dokumen_materi_id}`}>
+            📖 Kuis ini satu dokumen dengan materinya — baca materinya dulu
+          </Link>
+        </p>
+      )}
       {err && <div className="alert alert-error">{err}</div>}
       {msg && <div className="alert alert-ok">{msg}</div>}
 
@@ -423,7 +434,11 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ fontSize: "1.5rem" }}>🧪 {quiz.judul}</h1>
         <span className="row-actions">
-          <Link className="btn btn-sm" href={`/editor/kuis?quiz=${quiz.id}`}>✏️ Edit</Link>
+          {quiz.grup_dokumen ? (
+            <Link className="btn btn-sm" href={`/editor/dokumen?grup=${quiz.grup_dokumen}`}>✏️ Edit Dokumen</Link>
+          ) : (
+            <Link className="btn btn-sm" href={`/editor/kuis?quiz=${quiz.id}`}>✏️ Edit</Link>
+          )}
           <button className="btn btn-sm" onClick={extract}>📥 Ekstrak ke Bank Soal</button>
           <a className="btn btn-sm" href={`${API_BASE}/api/v1/quizzes/${quiz.id}/export?format=csv`}>⬇️ CSV</a>
           <a className="btn btn-sm" href={`${API_BASE}/api/v1/quizzes/${quiz.id}/export?format=xlsx`}>⬇️ XLSX</a>
@@ -434,6 +449,11 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
         {quiz.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai"} · {quiz.questions.length} soal ·
         durasi: {quiz.durasi_menit ? `${quiz.durasi_menit} menit` : "tanpa batas"}
       </p>
+      {quiz.dokumen_materi_id && (
+        <p style={{ marginTop: 6 }}>
+          <Link href={`/materi/${quiz.dokumen_materi_id}`}>📖 Lihat bagian materi dokumen ini</Link>
+        </p>
+      )}
       {err && <div className="alert alert-error">{err}</div>}
       {msg && <div className="alert alert-ok">{msg}</div>}
 

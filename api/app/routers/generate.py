@@ -35,6 +35,7 @@ from ..paket import (
     build_system_prompt,
     can_access_pack,
     split_documents,
+    validate_bundle_document,
     validate_document,
 )
 from ..tcml.quiz import parse_quiz_v2
@@ -99,12 +100,19 @@ def _brief_to_user_prompt(kind: str, brief: dict) -> str:
         target = "satu dokumen materi belajar (root [MATERIAL], boleh juga [EXERCISE]/[PROJECT] bila diminta)"
     elif kind == "kuis_pg":
         target = "satu dokumen kuis pilihan ganda (root [QUIZ], [TYPE]pilihan_ganda[/TYPE])"
+    elif kind == "dokumen":
+        target = (
+            "satu DOKUMEN TERPADU dalam satu keluaran: bagian materi belajar (root [MATERIAL]) "
+            "diikuti bagian kuis yang menguji materi tersebut — kuis pilihan ganda (root [QUIZ], "
+            "[TYPE]pilihan_ganda[/TYPE]) dan/atau kuis esai (root [QUIZ], [TYPE]essay[/TYPE]) "
+            "sesuai modul paket yang tersedia"
+        )
     else:
         target = "satu dokumen kuis esai (root [QUIZ], [TYPE]essay[/TYPE])"
     lines = [f"Buatkan {target} tentang: {topik}."]
     if brief.get("jenjang"):
         lines.append(f"Jenjang/kelas: {brief['jenjang']}.")
-    if kind in ("kuis_pg", "kuis_esai") and brief.get("jumlah_soal"):
+    if kind in ("kuis_pg", "kuis_esai", "dokumen") and brief.get("jumlah_soal"):
         lines.append(f"Jumlah soal: {brief['jumlah_soal']}.")
     if instruksi:
         lines.append(f"Instruksi tambahan: {instruksi}")
@@ -112,7 +120,7 @@ def _brief_to_user_prompt(kind: str, brief: dict) -> str:
 
 
 class GenerateIn(BaseModel):
-    kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai)$")
+    kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai|dokumen)$")
     pack_id: int
     ai_setting_id: Optional[int] = None
     brief: dict = Field(default_factory=dict)
@@ -160,13 +168,18 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
     job.finished_at = datetime.now(timezone.utc)
 
     drafts: list[ContentDraft] = []
-    for teks in split_documents(raw):
-        v = validate_document(db, pack, body.kind, teks)
+    if body.kind == "dokumen":
+        # Dokumen terpadu: SELURUH keluaran adalah SATU dokumen gabungan —
+        # jangan dipecah per root seperti bundle biasa.
+        teks = "\n".join(
+            ln for ln in raw.splitlines() if not ln.strip().startswith("```")
+        ).strip()
+        v = validate_bundle_document(db, pack, teks)
         d = ContentDraft(
             generation_job_id=job.id,
             user_id=user.id,
-            jenis=v["jenis"] or ("quiz" if body.kind != "materi" else "material"),
-            tipe_quiz=v["tipe_quiz"],
+            jenis="dokumen",
+            tipe_quiz=None,
             judul=v["judul"],
             teks_mentah=teks,
             is_valid=v["valid"],
@@ -175,6 +188,22 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
         )
         db.add(d)
         drafts.append(d)
+    else:
+        for teks in split_documents(raw):
+            v = validate_document(db, pack, body.kind, teks)
+            d = ContentDraft(
+                generation_job_id=job.id,
+                user_id=user.id,
+                jenis=v["jenis"] or ("quiz" if body.kind != "materi" else "material"),
+                tipe_quiz=v["tipe_quiz"],
+                judul=v["judul"],
+                teks_mentah=teks,
+                is_valid=v["valid"],
+                errors=v["errors"],
+                status="draft",
+            )
+            db.add(d)
+            drafts.append(d)
     db.commit()
     for d in drafts:
         db.refresh(d)
@@ -192,7 +221,7 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
 
 
 class ImportIn(BaseModel):
-    kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai)$")
+    kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai|dokumen)$")
     pack_id: int
     teks: str = Field(min_length=1)
 
@@ -207,7 +236,13 @@ def import_external(body: ImportIn, user: User = Depends(_staff), db: Session = 
     pack = db.get(ParserPack, body.pack_id)
     if pack is None or not can_access_pack(db, user, pack):
         raise HTTPException(status_code=404, detail="Paket tidak ditemukan.")
-    docs = split_documents(body.teks)
+    if body.kind == "dokumen":
+        teks_bersih = "\n".join(
+            ln for ln in body.teks.splitlines() if not ln.strip().startswith("```")
+        ).strip()
+        docs = [teks_bersih] if teks_bersih else []
+    else:
+        docs = split_documents(body.teks)
     if not docs:
         raise HTTPException(
             status_code=400,
@@ -227,18 +262,32 @@ def import_external(body: ImportIn, user: User = Depends(_staff), db: Session = 
     db.flush()
     drafts: list[ContentDraft] = []
     for teks in docs:
-        v = validate_document(db, pack, body.kind, teks)
-        d = ContentDraft(
-            generation_job_id=job.id,
-            user_id=user.id,
-            jenis=v["jenis"] or ("quiz" if body.kind != "materi" else "material"),
-            tipe_quiz=v["tipe_quiz"],
-            judul=v["judul"],
-            teks_mentah=teks,
-            is_valid=v["valid"],
-            errors=v["errors"],
-            status="draft",
-        )
+        if body.kind == "dokumen":
+            v = validate_bundle_document(db, pack, teks)
+            d = ContentDraft(
+                generation_job_id=job.id,
+                user_id=user.id,
+                jenis="dokumen",
+                tipe_quiz=None,
+                judul=v["judul"],
+                teks_mentah=teks,
+                is_valid=v["valid"],
+                errors=v["errors"],
+                status="draft",
+            )
+        else:
+            v = validate_document(db, pack, body.kind, teks)
+            d = ContentDraft(
+                generation_job_id=job.id,
+                user_id=user.id,
+                jenis=v["jenis"] or ("quiz" if body.kind != "materi" else "material"),
+                tipe_quiz=v["tipe_quiz"],
+                judul=v["judul"],
+                teks_mentah=teks,
+                is_valid=v["valid"],
+                errors=v["errors"],
+                status="draft",
+            )
         db.add(d)
         drafts.append(d)
     db.commit()
@@ -292,7 +341,13 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
     job = db.get(GenerationJob, d.generation_job_id) if d.generation_job_id else None
     pack = db.get(ParserPack, job.pack_id) if job and job.pack_id else None
     setting = _resolve_setting(db, user, job.ai_setting_id if job else None)
-    kind = "materi" if d.jenis == "material" else ("kuis_pg" if d.tipe_quiz == "pilihan_ganda" else "kuis_esai")
+    kind = (
+        "dokumen"
+        if d.jenis == "dokumen"
+        else "materi"
+        if d.jenis == "material"
+        else ("kuis_pg" if d.tipe_quiz == "pilihan_ganda" else "kuis_esai")
+    )
     system_prompt = (
         build_system_prompt(db, pack, kind)
         if pack is not None
@@ -302,11 +357,20 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
         f"- Baris {e.get('line')}: {e['message']}" if e.get("line") else f"- {e['message']}"
         for e in (d.errors or [])
     )
+    if kind == "dokumen":
+        penutup = (
+            "Perbaiki dokumen TERPADU tersebut (pertahankan bagian materi dan kuisnya). "
+            "Keluarkan HANYA dokumen TCML gabungan yang sudah diperbaiki, tanpa penjelasan apa pun."
+        )
+    else:
+        penutup = (
+            "Perbaiki dokumen tersebut. Keluarkan HANYA satu dokumen TCML yang sudah diperbaiki, "
+            "tanpa penjelasan apa pun."
+        )
     user_prompt = (
         "Dokumen TCML berikut GAGAL validasi dengan error:\n"
         f"{error_lines}\n\nDOKUMEN:\n{d.teks_mentah}\n\n"
-        "Perbaiki dokumen tersebut. Keluarkan HANYA satu dokumen TCML yang sudah diperbaiki, "
-        "tanpa penjelasan apa pun."
+        f"{penutup}"
     )
     try:
         raw = chat_completion(
@@ -318,15 +382,27 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
         )
     except ProviderError as e:
         raise HTTPException(status_code=502, detail=str(e))
-    docs = split_documents(raw)
-    new_text = docs[0] if docs else raw.strip()
+    if kind == "dokumen":
+        new_text = "\n".join(
+            ln for ln in raw.splitlines() if not ln.strip().startswith("```")
+        ).strip()
+    else:
+        docs = split_documents(raw)
+        new_text = docs[0] if docs else raw.strip()
     if pack is not None:
-        v = validate_document(db, pack, kind, new_text)
-        d.teks_mentah = new_text
-        d.is_valid = v["valid"]
-        d.errors = v["errors"]
-        d.judul = v["judul"]
-        d.tipe_quiz = v["tipe_quiz"] or d.tipe_quiz
+        if kind == "dokumen":
+            v = validate_bundle_document(db, pack, new_text)
+            d.teks_mentah = new_text
+            d.is_valid = v["valid"]
+            d.errors = v["errors"]
+            d.judul = v["judul"]
+        else:
+            v = validate_document(db, pack, kind, new_text)
+            d.teks_mentah = new_text
+            d.is_valid = v["valid"]
+            d.errors = v["errors"]
+            d.judul = v["judul"]
+            d.tipe_quiz = v["tipe_quiz"] or d.tipe_quiz
     else:
         d.teks_mentah = new_text
     write_audit(db, user.id, "draft.repair", "content_draft", d.id)
@@ -350,6 +426,47 @@ def save_draft_to_bank(
     if not d.is_valid:
         raise HTTPException(status_code=400, detail="Draf belum valid — perbaiki dulu sebelum disimpan.")
     judul = (body.judul or d.judul).strip()
+    if d.jenis == "dokumen":
+        import uuid as _uuid
+
+        from ..tcml.document import split_document
+
+        parts = split_document(d.teks_mentah)
+        if parts["errors"] or not any(
+            parts[k] for k in ("materi", "kuis_pg", "kuis_esai")
+        ):
+            raise HTTPException(status_code=400, detail="Dokumen terpadu tidak terbaca bagiannya.")
+        grup = _uuid.uuid4().hex
+        first_id = None
+        if parts["materi"]:
+            _material_parse_or_400(parts["materi"])
+            saved_m = SavedMaterial(
+                judul=judul, teks_mentah=parts["materi"], dibuat_oleh=user.id,
+                grup_dokumen=grup, jenis="materi",
+            )
+            db.add(saved_m)
+            db.flush()
+            first_id = saved_m.id
+        for key, tipe in (("kuis_pg", "pilihan_ganda"), ("kuis_esai", "teks")):
+            if parts[key]:
+                parsed = _quiz_parse_or_400(parts[key], tipe)
+                saved_q = SavedQuiz(
+                    judul=judul,
+                    tipe=tipe,
+                    teks_mentah=parts[key],
+                    snapshot=parsed["questions"],
+                    dibuat_oleh=user.id,
+                    grup_dokumen=grup,
+                    jenis="materi",
+                )
+                db.add(saved_q)
+                db.flush()
+                if first_id is None:
+                    first_id = saved_q.id
+        d.published_id = first_id
+        d.status = "published"
+        db.commit()
+        return {"ok": True, "draft": draft_out(d), "saved_id": d.published_id, "jenis": d.jenis, "grup": grup}
     if d.jenis == "material":
         _material_parse_or_400(d.teks_mentah)
         saved = SavedMaterial(judul=judul, teks_mentah=d.teks_mentah, dibuat_oleh=user.id)
@@ -392,6 +509,45 @@ def publish_draft(
     subject = get_subject(db, meeting.subject_id)
     require_subject_manage(db, user, subject)
     judul = (body.judul or d.judul).strip()
+    if d.jenis == "dokumen":
+        import uuid as _uuid
+
+        from ..tcml.document import split_document
+        from .documents import QuizSettingsIn, buat_kuis_part, buat_material_part
+
+        parts = split_document(d.teks_mentah)
+        if parts["errors"] or not any(
+            parts[k] for k in ("materi", "kuis_pg", "kuis_esai")
+        ):
+            raise HTTPException(status_code=400, detail="Dokumen terpadu tidak terbaca bagiannya.")
+        grup = _uuid.uuid4().hex
+        m_id = q_id = None
+        if parts["materi"]:
+            m = buat_material_part(
+                db, meeting, user,
+                judul=judul, teks=parts["materi"], grup=grup,
+                jenis="materi", tenggat=None,
+            )
+            m_id = m.id
+        for key, tipe in (("kuis_pg", "pilihan_ganda"), ("kuis_esai", "teks")):
+            if parts[key]:
+                q = buat_kuis_part(
+                    db, meeting, user,
+                    judul=judul, teks=parts[key], tipe=tipe, grup=grup,
+                    jenis="materi", pengaturan=QuizSettingsIn(),
+                )
+                if q_id is None:
+                    q_id = q.id
+        d.published_id = m_id or q_id
+        d.status = "published"
+        db.commit()
+        return {
+            "ok": True,
+            "draft": draft_out(d),
+            "grup": grup,
+            "material_id": m_id,
+            "quiz_id": q_id,
+        }
     if d.jenis == "material":
         html = _material_parse_or_400(d.teks_mentah)
         m = Material(

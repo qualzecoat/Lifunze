@@ -85,6 +85,8 @@ def saved_material_out(s: SavedMaterial) -> dict:
         "judul": s.judul,
         "teks_mentah": s.teks_mentah,
         "kategori_id": s.kategori_id,
+        "grup_dokumen": s.grup_dokumen,
+        "jenis": s.jenis,
     }
 
 
@@ -178,6 +180,8 @@ def saved_quiz_out(s: SavedQuiz) -> dict:
         "tipe": s.tipe,
         "teks_mentah": s.teks_mentah,
         "kategori_id": s.kategori_id,
+        "grup_dokumen": s.grup_dokumen,
+        "jenis": s.jenis,
         "jumlah_soal": len(s.snapshot) if isinstance(s.snapshot, list) else 0,
     }
 
@@ -351,7 +355,220 @@ def copy_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = De
     return saved_quiz_out(s)
 
 
-# ----------------------------------------------------------------- bank soal
+# ------------------------------------------------------- dokumen bank terpadu
+class BankDocumentIn(BaseModel):
+    judul: str = Field(min_length=1, max_length=200)
+    jenis: str = Field(pattern="^(materi|tugas|kuis|ujian)$")
+    kategori_id: Optional[int] = None
+    teks_materi: Optional[str] = None
+    teks_kuis_pg: Optional[str] = None
+    teks_kuis_esai: Optional[str] = None
+
+
+class BankDocUseIn(BaseModel):
+    meeting_id: int
+
+
+def _bank_doc_parts(db: Session, user: User, grup: str, milik_sendiri: bool = True):
+    qm = db.query(SavedMaterial).filter(SavedMaterial.grup_dokumen == grup)
+    qq = db.query(SavedQuiz).filter(SavedQuiz.grup_dokumen == grup)
+    if milik_sendiri:
+        qm = qm.filter(SavedMaterial.dibuat_oleh == user.id)
+        qq = qq.filter(SavedQuiz.dibuat_oleh == user.id)
+    material = qm.first()
+    quizzes = qq.order_by(SavedQuiz.id).all()
+    return material, quizzes
+
+
+def _bank_document_out(material, quizzes, grup: str) -> dict:
+    anchor = material or (quizzes[0] if quizzes else None)
+    if anchor is None:
+        raise HTTPException(status_code=404, detail="Dokumen bank tidak ditemukan.")
+    return {
+        "grup": grup,
+        "judul": anchor.judul,
+        "jenis": anchor.jenis,
+        "kategori_id": anchor.kategori_id,
+        "material": saved_material_out(material) if material else None,
+        "quizzes": [saved_quiz_out(s) for s in quizzes],
+    }
+
+
+def _snapshot_kuis(teks: str, tipe: str) -> list:
+    res = parse_quiz_v2(teks, expected_type=tipe)
+    if not res["success"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"pesan": "Teks TCML kuis tidak valid.", "errors": res["errors"]},
+        )
+    return res["content"]["questions"]
+
+
+@router.post("/documents", status_code=201, dependencies=[Depends(require_csrf)])
+def create_bank_document(body: BankDocumentIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    import uuid
+
+    if not any((t or "").strip() for t in (body.teks_materi, body.teks_kuis_pg, body.teks_kuis_esai)):
+        raise HTTPException(status_code=400, detail="Dokumen kosong — isi bagian materi atau kuis dulu.")
+    _validate_category(db, user, body.kategori_id)
+    grup = uuid.uuid4().hex
+    material = None
+    if (body.teks_materi or "").strip():
+        res = parse_material(body.teks_materi)
+        if not res["success"]:
+            raise HTTPException(status_code=400, detail={"pesan": "Bagian materi tidak valid.", "errors": res["errors"]})
+        material = SavedMaterial(
+            judul=body.judul.strip(), teks_mentah=body.teks_materi,
+            dibuat_oleh=user.id, kategori_id=body.kategori_id,
+            grup_dokumen=grup, jenis=body.jenis,
+        )
+        db.add(material)
+    quizzes = []
+    for tipe, teks in (("pilihan_ganda", body.teks_kuis_pg), ("teks", body.teks_kuis_esai)):
+        if (teks or "").strip():
+            s = SavedQuiz(
+                judul=body.judul.strip(), tipe=tipe, teks_mentah=teks,
+                snapshot=_snapshot_kuis(teks, tipe),
+                dibuat_oleh=user.id, kategori_id=body.kategori_id,
+                grup_dokumen=grup, jenis=body.jenis,
+            )
+            db.add(s)
+            quizzes.append(s)
+    db.commit()
+    if material is not None:
+        db.refresh(material)
+    for s in quizzes:
+        db.refresh(s)
+    return _bank_document_out(material, quizzes, grup)
+
+
+@router.get("/documents/{grup}")
+def get_bank_document(grup: str, user: User = Depends(staff), db: Session = Depends(get_db)):
+    material, quizzes = _bank_doc_parts(db, user, grup)
+    return _bank_document_out(material, quizzes, grup)
+
+
+@router.patch("/documents/{grup}", dependencies=[Depends(require_csrf)])
+def update_bank_document(grup: str, body: BankDocumentIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    material, quizzes = _bank_doc_parts(db, user, grup)
+    _bank_document_out(material, quizzes, grup)  # 404 bila bukan dokumen milik user
+    if not any((t or "").strip() for t in (body.teks_materi, body.teks_kuis_pg, body.teks_kuis_esai)):
+        raise HTTPException(status_code=400, detail="Dokumen tidak boleh kosong.")
+    _validate_category(db, user, body.kategori_id)
+
+    if (body.teks_materi or "").strip():
+        res = parse_material(body.teks_materi)
+        if not res["success"]:
+            raise HTTPException(status_code=400, detail={"pesan": "Bagian materi tidak valid.", "errors": res["errors"]})
+        if material is None:
+            material = SavedMaterial(dibuat_oleh=user.id, grup_dokumen=grup, judul=body.judul.strip(), teks_mentah=body.teks_materi)
+            db.add(material)
+        material.judul = body.judul.strip()
+        material.teks_mentah = body.teks_materi
+        material.jenis = body.jenis
+        material.kategori_id = body.kategori_id
+    elif material is not None:
+        db.delete(material)
+        material = None
+
+    by_tipe = {s.tipe: s for s in quizzes}
+    sisa = []
+    for tipe, teks in (("pilihan_ganda", body.teks_kuis_pg), ("teks", body.teks_kuis_esai)):
+        existing = by_tipe.get(tipe)
+        if (teks or "").strip():
+            snap = _snapshot_kuis(teks, tipe)
+            if existing is None:
+                existing = SavedQuiz(dibuat_oleh=user.id, grup_dokumen=grup, tipe=tipe, judul=body.judul.strip(), teks_mentah=teks, snapshot=snap)
+                db.add(existing)
+            existing.judul = body.judul.strip()
+            existing.teks_mentah = teks
+            existing.snapshot = snap
+            existing.jenis = body.jenis
+            existing.kategori_id = body.kategori_id
+            sisa.append(existing)
+        elif existing is not None:
+            db.delete(existing)
+    db.commit()
+    material2, quizzes2 = _bank_doc_parts(db, user, grup)
+    return _bank_document_out(material2, quizzes2, grup)
+
+
+@router.delete("/documents/{grup}", dependencies=[Depends(require_csrf)])
+def delete_bank_document(grup: str, user: User = Depends(staff), db: Session = Depends(get_db)):
+    material, quizzes = _bank_doc_parts(db, user, grup)
+    _bank_document_out(material, quizzes, grup)
+    for s in quizzes:
+        db.delete(s)
+    if material is not None:
+        db.delete(material)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/documents/{grup}/use", status_code=201, dependencies=[Depends(require_csrf)])
+def use_bank_document(grup: str, body: BankDocUseIn, user: User = Depends(staff), db: Session = Depends(get_db)):
+    """Pakai dokumen bank ke pertemuan: pasangan dibuat ulang dengan grup baru."""
+    import uuid
+
+    from ..access import get_meeting, get_subject, require_subject_manage
+    from .documents import QuizSettingsIn, buat_kuis_part, buat_material_part, document_out
+
+    material, quizzes = _bank_doc_parts(db, user, grup)
+    _bank_document_out(material, quizzes, grup)
+    meeting = get_meeting(db, body.meeting_id)
+    subject = get_subject(db, meeting.subject_id)
+    require_subject_manage(db, user, subject)
+    jenis = (material or quizzes[0]).jenis
+    grup_baru = uuid.uuid4().hex
+    if material is not None:
+        buat_material_part(
+            db, meeting, user,
+            judul=material.judul, teks=material.teks_mentah,
+            grup=grup_baru, jenis=jenis, tenggat=None,
+        )
+    for s in quizzes:
+        buat_kuis_part(
+            db, meeting, user,
+            judul=s.judul, teks=s.teks_mentah, tipe=s.tipe,
+            grup=grup_baru, jenis=jenis, pengaturan=QuizSettingsIn(),
+        )
+    db.commit()
+    return document_out(db, grup_baru)
+
+
+@router.post("/documents/{grup}/copy", status_code=201, dependencies=[Depends(require_csrf)])
+def copy_bank_document(grup: str, user: User = Depends(staff), db: Session = Depends(get_db)):
+    """Salin satu dokumen bank utuh (termasuk dari Jelajahi) dengan grup baru."""
+    import uuid
+
+    material, quizzes = _bank_doc_parts(db, user, grup, milik_sendiri=False)
+    _bank_document_out(material, quizzes, grup)
+    grup_baru = uuid.uuid4().hex
+    material_baru = None
+    if material is not None:
+        material_baru = SavedMaterial(
+            judul=material.judul, teks_mentah=material.teks_mentah,
+            dibuat_oleh=user.id, kategori_id=None,
+            grup_dokumen=grup_baru, jenis=material.jenis,
+        )
+        db.add(material_baru)
+    quizzes_baru = []
+    for s in quizzes:
+        baru = SavedQuiz(
+            judul=s.judul, tipe=s.tipe, teks_mentah=s.teks_mentah,
+            snapshot=list(s.snapshot) if isinstance(s.snapshot, list) else s.snapshot,
+            dibuat_oleh=user.id, kategori_id=None,
+            grup_dokumen=grup_baru, jenis=s.jenis,
+        )
+        db.add(baru)
+        quizzes_baru.append(baru)
+    db.commit()
+    if material_baru is not None:
+        db.refresh(material_baru)
+    for s in quizzes_baru:
+        db.refresh(s)
+    return _bank_document_out(material_baru, quizzes_baru, grup_baru)
+
 class BankQuestionIn(BaseModel):
     tipe: str = Field(pattern="^(pilihan_ganda|teks)$")
     pertanyaan: str = Field(min_length=1)

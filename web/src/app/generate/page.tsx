@@ -49,7 +49,7 @@ export default function GeneratePage() {
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   // form
-  const [kind, setKind] = useState<"materi" | "kuis_pg" | "kuis_esai">("materi");
+  const [kind, setKind] = useState<"materi" | "kuis_pg" | "kuis_esai" | "dokumen">("materi");
   const [packId, setPackId] = useState("");
   const [settingId, setSettingId] = useState("");
   const [topik, setTopik] = useState("");
@@ -281,6 +281,7 @@ export default function GeneratePage() {
               <option value="materi">Materi / Latihan / Proyek</option>
               <option value="kuis_pg">Kuis Pilihan Ganda</option>
               <option value="kuis_esai">Kuis Esai</option>
+              <option value="dokumen">📄 Dokumen Terpadu (Materi + Kuis)</option>
             </select>
           </div>
           <div>
@@ -338,6 +339,7 @@ export default function GeneratePage() {
               <option value="materi">Materi / Latihan / Proyek</option>
               <option value="kuis_pg">Kuis Pilihan Ganda</option>
               <option value="kuis_esai">Kuis Esai</option>
+              <option value="dokumen">📄 Dokumen Terpadu (Materi + Kuis)</option>
             </select>
           </div>
           <div>
@@ -391,7 +393,7 @@ export default function GeneratePage() {
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <strong>{d.judul}</strong>
             <span>
-              <span className="badge" style={{ marginRight: 6 }}>{d.jenis === "quiz" ? `Kuis ${d.tipe_quiz === "teks" ? "Esai" : "PG"}` : "Materi"}</span>
+              <span className="badge" style={{ marginRight: 6 }}>{d.jenis === "dokumen" ? "📄 Dokumen Terpadu" : d.jenis === "quiz" ? `Kuis ${d.tipe_quiz === "teks" ? "Esai" : "PG"}` : "Materi"}</span>
               {d.is_valid ? (
                 <span className="badge">✅ valid</span>
               ) : (
@@ -425,7 +427,18 @@ export default function GeneratePage() {
               </>
             )}
             {d.status === "published" && d.published_id && (
-              <Link className="btn btn-sm" href={d.jenis === "quiz" ? `/kuis/${d.published_id}` : `/materi/${d.published_id}`}>
+              <Link
+                className="btn btn-sm"
+                href={
+                  d.jenis === "dokumen"
+                    ? /\[(MATERIAL|EXERCISE|PROJECT)\]/.test(d.teks_mentah)
+                      ? `/materi/${d.published_id}`
+                      : `/kuis/${d.published_id}`
+                    : d.jenis === "quiz"
+                      ? `/kuis/${d.published_id}`
+                      : `/materi/${d.published_id}`
+                }
+              >
                 🔎 Lihat Hasil
               </Link>
             )}
@@ -461,6 +474,7 @@ export default function GeneratePage() {
 }
 
 interface QuizPreview {
+  tipe?: string;
   questions: {
     pertanyaan: string;
     bobot: number;
@@ -469,17 +483,67 @@ interface QuizPreview {
   }[];
 }
 
+/** Pecah dokumen gabungan per akar (pendamping tcml.document di server). */
+function pecahDokumenTeks(teks: string): { materi: string | null; kuis: { teks: string; tipe: string }[] } {
+  const out: { materi: string | null; kuis: { teks: string; tipe: string }[] } = { materi: null, kuis: [] };
+  const lines = teks.split("\n");
+  let cur: string[] | null = null;
+  let root = "";
+  for (const ln of lines) {
+    const open = ln.match(/^\s*\[(MATERIAL|EXERCISE|PROJECT|QUIZ)\]\s*$/);
+    if (open && cur === null) {
+      cur = [ln];
+      root = open[1];
+      continue;
+    }
+    if (cur !== null) {
+      cur.push(ln);
+      if (ln.trim() === `[/${root}]`) {
+        const seg = cur.join("\n").trim();
+        if (root === "QUIZ") {
+          out.kuis.push({ teks: seg, tipe: /\[TYPE\]\s*essay\s*\[\/TYPE\]/i.test(seg) ? "teks" : "pilihan_ganda" });
+        } else if (!out.materi) {
+          out.materi = seg;
+        }
+        cur = null;
+        root = "";
+      }
+    }
+  }
+  return out;
+}
+
 /** Pratinjau render draf — guru meninjau hasil jadi (bukan teks TCML mentah). */
 function DraftPreview({ draft }: { draft: Draft }) {
   const [html, setHtml] = useState<string | null>(null);
   const [quiz, setQuiz] = useState<QuizPreview | null>(null);
+  const [dokumen, setDokumen] = useState<{ html: string | null; kuis: QuizPreview[] } | null>(null);
   const [gagal, setGagal] = useState("");
 
   useEffect(() => {
     let hidup = true;
     (async () => {
       try {
-        if (draft.jenis === "quiz") {
+        if (draft.jenis === "dokumen") {
+          const bagian = pecahDokumenTeks(draft.teks_mentah);
+          let htmlBagian: string | null = null;
+          if (bagian.materi) {
+            const r = await apiFetch<{ success: boolean; content: string }>(
+              "/api/v1/parse/content",
+              { method: "POST", body: { teks: bagian.materi, jenis: "material" } },
+            );
+            htmlBagian = r.content;
+          }
+          const kuisBagian: QuizPreview[] = [];
+          for (const k of bagian.kuis) {
+            const r = await apiFetch<{ success: boolean; content: QuizPreview }>(
+              "/api/v1/parse/quiz",
+              { method: "POST", body: { teks: k.teks, tipe: k.tipe } },
+            );
+            if (r.content) kuisBagian.push(r.content);
+          }
+          if (hidup) setDokumen({ html: htmlBagian, kuis: kuisBagian });
+        } else if (draft.jenis === "quiz") {
           const r = await apiFetch<{ success: boolean; content: QuizPreview }>(
             "/api/v1/parse/quiz",
             {
@@ -511,10 +575,51 @@ function DraftPreview({ draft }: { draft: Draft }) {
     <div style={{ marginTop: 12, borderTop: "1px dashed var(--border)", paddingTop: 10 }}>
       <p className="muted" style={{ marginBottom: 8 }}>Pratinjau — tampilan seperti yang dilihat siswa:</p>
       {gagal && <p className="muted">{gagal}</p>}
-      {!gagal && html === null && quiz === null && <p className="muted">Memuat pratinjau...</p>}
+      {!gagal && html === null && quiz === null && dokumen === null && <p className="muted">Memuat pratinjau...</p>}
       {html !== null && (
         <div className="contoh-doc-wrap">
           <div className="tcml" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      )}
+      {dokumen !== null && (
+        <div>
+          {dokumen.html !== null && (
+            <>
+              <p style={{ margin: "4px 0" }}><span className="badge">📖 Bagian Materi</span></p>
+              <div className="contoh-doc-wrap">
+                <div className="tcml" dangerouslySetInnerHTML={{ __html: dokumen.html }} />
+              </div>
+            </>
+          )}
+          {dokumen.kuis.map((k, ki) => (
+            <div key={ki} style={{ marginTop: 10 }}>
+              <p style={{ margin: "4px 0" }}>
+                <span className="badge">{k.tipe === "teks" ? "📝 Bagian Kuis Esai" : "🧪 Bagian Kuis PG"}</span>
+              </p>
+              <div className="contoh-doc-wrap">
+                {k.questions.map((q, i) => (
+                  <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                    <p>
+                      <strong>
+                        {i + 1}. {q.pertanyaan}
+                      </strong>{" "}
+                      <span className="badge">bobot {q.bobot}</span>
+                    </p>
+                    {q.options.map((o, j) => (
+                      <p key={j} style={{ color: o.is_correct ? "var(--ok)" : undefined }}>
+                        {o.is_correct ? "✅" : "▫️"} {String.fromCharCode(65 + j)}. {o.teks}
+                      </p>
+                    ))}
+                    {q.jawaban_referensi && <p className="muted">Referensi: {q.jawaban_referensi}</p>}
+                  </div>
+                ))}
+                {k.questions.length === 0 && <p className="muted">(Tidak ada soal terbaca.)</p>}
+              </div>
+            </div>
+          ))}
+          {dokumen.html === null && dokumen.kuis.length === 0 && (
+            <p className="muted">(Tidak ada bagian yang terbaca.)</p>
+          )}
         </div>
       )}
       {quiz !== null && (

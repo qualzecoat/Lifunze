@@ -329,6 +329,9 @@ def subject_progress(
 
 # ------------------------------------------------------- tugas file [PROJECT]
 def _is_project(material: Material) -> bool:
+    # Pengumpulan tersedia untuk materi [PROJECT] dan dokumen berjenis Tugas.
+    if getattr(material, "jenis", "materi") == "tugas":
+        return True
     return re.search(r"^\s*\[PROJECT\]", material.teks_mentah or "", re.MULTILINE) is not None
 
 
@@ -370,7 +373,7 @@ async def upload_submission(
     if not _is_project(m):
         raise HTTPException(
             status_code=400,
-            detail="Materi ini bukan tugas proyek [PROJECT]; pengumpulan file tidak tersedia.",
+            detail="Materi ini bukan tugas ([PROJECT] atau jenis Tugas); pengumpulan file tidak tersedia.",
         )
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in SUBMISSION_EXT:
