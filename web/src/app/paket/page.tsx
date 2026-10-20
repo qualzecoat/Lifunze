@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import TabsBar from "@/components/TabsBar";
 import { API_BASE, apiFetch, getMe, type User } from "@/lib/api";
 
 interface TagMeta {
@@ -138,6 +139,9 @@ export default function PaketPage() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  type TabKey = "buat" | "saya" | "dibagikan";
+  const [tab, setTab] = useState<TabKey>("buat");
+  const [okJump, setOkJump] = useState<{ label: string; tab: TabKey } | null>(null);
   // form buat/edit
   const [editId, setEditId] = useState<number | null>(null);
   const [nama, setNama] = useState("");
@@ -182,6 +186,10 @@ export default function PaketPage() {
       else if (u.role === "siswa") router.push("/dashboard");
       else {
         setUser(u);
+        const awal = new URLSearchParams(window.location.search).get("tab");
+        if (awal && ["buat", "saya", "dibagikan"].includes(awal)) {
+          setTab(awal as TabKey);
+        }
         load();
       }
     });
@@ -233,6 +241,18 @@ export default function PaketPage() {
   }, [sel, modules, user, selectionPayload]);
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
+
+  function gantiTab(k: TabKey) {
+    setTab(k);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", k);
+    window.history.replaceState(null, "", url.toString());
+  }
+
+  function showOk(teks: string, jump?: { label: string; tab: TabKey }) {
+    setOk(teks);
+    setOkJump(jump ?? null);
+  }
 
   /* ---- aksi pilihan ---- */
   function toggleModule(slug: string) {
@@ -293,13 +313,14 @@ export default function PaketPage() {
       const payload = { nama, deskripsi: deskripsi || null, ...selectionPayload() };
       if (editId) {
         await apiFetch(`/api/v1/packs/${editId}`, { method: "PATCH", body: payload });
-        setOk("Paket diperbarui.");
+        showOk("Paket diperbarui.");
       } else {
         await apiFetch("/api/v1/packs", { method: "POST", body: payload });
-        setOk("Paket dibuat.");
+        showOk("Paket dibuat.");
       }
       resetForm();
       load();
+      gantiTab("saya");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan paket.");
     }
@@ -329,20 +350,21 @@ export default function PaketPage() {
     setMode(p.tag_pilihan && !classic ? "lanjut" : "mudah");
     setShareFor(null);
     setUjiHasil(null);
+    gantiTab("buat");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function remove(p: Pack) {
     if (!window.confirm(`Hapus paket "${p.nama}"?`)) return;
     await apiFetch(`/api/v1/packs/${p.id}`, { method: "DELETE" });
-    setOk("Paket dihapus.");
+    showOk("Paket dihapus.");
     load();
   }
 
   async function fork(p: Pack) {
     try {
       await apiFetch(`/api/v1/packs/${p.id}/fork`, { method: "POST" });
-      setOk(`Paket "${p.nama}" di-fork ke paket Anda.`);
+      showOk(`Paket "${p.nama}" di-fork ke paket Anda.`, { label: "Lihat Paket Saya →", tab: "saya" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mem-fork paket.");
@@ -361,7 +383,7 @@ export default function PaketPage() {
         method: "PUT",
         body: { mode: shareMode, user_ids: shareUsers },
       });
-      setOk("Pengaturan berbagi disimpan.");
+      showOk("Pengaturan berbagi disimpan.");
       setShareFor(null);
       load();
     } catch (err) {
@@ -452,8 +474,28 @@ export default function PaketPage() {
         guru lain dan diekspor sebagai file .md untuk LLM eksternal.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
-      {ok && <div className="alert alert-ok">{ok}</div>}
+      {ok && (
+        <div className="alert alert-ok">
+          {ok}{" "}
+          {okJump && (
+            <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => gantiTab(okJump.tab)}>
+              {okJump.label}
+            </button>
+          )}
+        </div>
+      )}
 
+      <TabsBar
+        active={tab}
+        onChange={(k) => gantiTab(k as TabKey)}
+        tabs={[
+          { key: "buat", label: "🛠️ Buat Paket" },
+          { key: "saya", label: `📦 Paket Saya (${packs.length})` },
+          { key: "dibagikan", label: `🔗 Dibagikan (${shared.length})` },
+        ]}
+      />
+
+      <div style={{ display: tab === "buat" ? undefined : "none" }}>
       <form id="packForm" onSubmit={submitPack}>
       <div className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -661,7 +703,9 @@ export default function PaketPage() {
           )}
 
       </form>
+      </div>
 
+      {tab === "buat" && (
       <div className="sumbar-fixed">
         <span><strong>{selectedSlugs.length}</strong> modul aktif</span>
         <span>·</span>
@@ -677,14 +721,19 @@ export default function PaketPage() {
           {editId ? "💾 Simpan Perubahan" : "➕ Buat Paket"}
         </button>
       </div>
+      )}
 
+      <div style={{ display: tab === "saya" ? undefined : "none" }}>
       <h3 style={{ margin: "18px 0 10px" }}>Paket Saya ({packs.length})</h3>
       {packs.map((p) => packCard(p, true))}
-      {packs.length === 0 && <p className="muted">Belum ada paket. Buat paket pertama Anda di atas.</p>}
+      {packs.length === 0 && <p className="muted">Belum ada paket. Buat paket pertama Anda di tab Buat Paket.</p>}
+      </div>
 
+      <div style={{ display: tab === "dibagikan" ? undefined : "none" }}>
       <h3 style={{ margin: "18px 0 10px" }}>Dibagikan ke Saya ({shared.length})</h3>
       {shared.map((p) => packCard(p, false))}
       {shared.length === 0 && <p className="muted">Belum ada paket yang dibagikan ke Anda.</p>}
+      </div>
     </main>
   );
 }

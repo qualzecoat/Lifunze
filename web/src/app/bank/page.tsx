@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import TabsBar from "@/components/TabsBar";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface Category {
@@ -60,6 +61,9 @@ export default function BankPage() {
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  type TabKey = "materi" | "kuis" | "soal" | "template" | "jelajahi";
+  const [tab, setTab] = useState<TabKey>("materi");
+  const [okJump, setOkJump] = useState<{ label: string; tab: TabKey } | null>(null);
   // form soal baru
   const [qTipe, setQTipe] = useState<"pilihan_ganda" | "teks">("pilihan_ganda");
   const [qPertanyaan, setQPertanyaan] = useState("");
@@ -90,6 +94,10 @@ export default function BankPage() {
       else if (u.role === "siswa") router.push("/dashboard");
       else {
         setUser(u);
+        const awal = new URLSearchParams(window.location.search).get("tab");
+        if (awal && ["materi", "kuis", "soal", "template", "jelajahi"].includes(awal)) {
+          setTab(awal as TabKey);
+        }
         load();
         loadTemplates();
       }
@@ -97,6 +105,18 @@ export default function BankPage() {
   }, [router, load]);
 
   if (!user) return <main className="page"><p className="muted">Memuat...</p></main>;
+
+  function gantiTab(k: TabKey) {
+    setTab(k);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", k);
+    window.history.replaceState(null, "", url.toString());
+  }
+
+  function showOk(teks: string, jump?: { label: string; tab: TabKey }) {
+    setOk(teks);
+    setOkJump(jump ?? null);
+  }
 
   const catName = (id: number | null) => categories.find((c) => c.id === id)?.nama ?? "-";
 
@@ -122,7 +142,7 @@ export default function BankPage() {
   async function deleteQuiz(q: SavedQuiz) {
     if (!window.confirm(`Hapus kuis bank "${q.judul}"?`)) return;
     await apiFetch(`/api/v1/bank/quizzes/${q.id}`, { method: "DELETE" });
-    setOk("Kuis bank dihapus.");
+    showOk("Kuis bank dihapus.");
     load();
   }
 
@@ -136,9 +156,10 @@ export default function BankPage() {
         `/api/v1/bank/quizzes/${q.id}/extract-questions${qs}`,
         { method: "POST" },
       );
-      setOk(
+      showOk(
         `Dari kuis "${q.judul}": ${r.dimasukkan} soal dimasukkan ke bank soal` +
           (r.dilewati > 0 ? `, ${r.dilewati} dilewati karena sudah ada.` : "."),
+        { label: "Lihat di Bank Soal →", tab: "soal" },
       );
       load();
     } catch (err) {
@@ -161,7 +182,7 @@ export default function BankPage() {
           kategori_id: value ? Number(value) : null,
         },
       });
-      setOk("Kategori soal diperbarui.");
+      showOk("Kategori soal diperbarui.");
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengubah kategori soal.");
@@ -180,7 +201,7 @@ export default function BankPage() {
   async function deleteTemplate(t: TemplateRow) {
     if (!window.confirm(`Hapus template kelas "${t.nama}"? Kelas yang sudah dibuat darinya tidak ikut terhapus.`)) return;
     await apiFetch(`/api/v1/class-templates/${t.id}`, { method: "DELETE" });
-    setOk("Template kelas dihapus.");
+    showOk("Template kelas dihapus.");
     loadTemplates();
   }
 
@@ -227,7 +248,7 @@ export default function BankPage() {
         { teks: "", benar: false },
         { teks: "", benar: true },
       ]);
-      setOk("Soal ditambahkan ke bank soal.");
+      showOk("Soal ditambahkan ke bank soal.");
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menambah soal.");
@@ -243,7 +264,7 @@ export default function BankPage() {
   async function copyMaterial(id: number) {
     try {
       await apiFetch(`/api/v1/bank/materials/${id}/copy`, { method: "POST" });
-      setOk("Materi disalin ke bank Anda.");
+      showOk("Materi disalin ke bank Anda.", { label: "Lihat Materi Saya →", tab: "materi" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyalin materi.");
@@ -253,7 +274,7 @@ export default function BankPage() {
   async function copyQuiz(id: number) {
     try {
       await apiFetch(`/api/v1/bank/quizzes/${id}/copy`, { method: "POST" });
-      setOk("Kuis disalin ke bank Anda.");
+      showOk("Kuis disalin ke bank Anda.", { label: "Lihat Kuis Saya →", tab: "kuis" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyalin kuis.");
@@ -268,7 +289,16 @@ export default function BankPage() {
         Koleksi pribadi Anda — pakai ulang ke kelas & pertemuan mana pun dari halaman kelas.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
-      {ok && <div className="alert alert-ok">{ok}</div>}
+      {ok && (
+        <div className="alert alert-ok">
+          {ok}{" "}
+          {okJump && (
+            <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => gantiTab(okJump.tab)}>
+              {okJump.label}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 14 }}>
         <h3>Kategori</h3>
@@ -287,6 +317,19 @@ export default function BankPage() {
         </div>
       </div>
 
+      <TabsBar
+        active={tab}
+        onChange={(k) => gantiTab(k as TabKey)}
+        tabs={[
+          { key: "materi", label: `📘 Materi (${materials.length})` },
+          { key: "kuis", label: `🧪 Kuis (${quizzes.length})` },
+          { key: "soal", label: `🎲 Bank Soal (${questions.length})` },
+          { key: "template", label: `🏫 Template (${templates.length})` },
+          { key: "jelajahi", label: `🔍 Jelajahi (${exploreMats.length + exploreQuizzes.length})` },
+        ]}
+      />
+
+      <div style={{ display: tab === "materi" ? undefined : "none" }}>
       <div className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap" }}>
           <h3>Materi Tersimpan ({materials.length})</h3>
@@ -311,7 +354,9 @@ export default function BankPage() {
           </tbody>
         </table>
       </div>
+      </div>
 
+      <div style={{ display: tab === "kuis" ? undefined : "none" }}>
       <div className="card">
         <h3>Kuis Tersimpan ({quizzes.length})</h3>
         <table className="table" style={{ marginTop: 8 }}>
@@ -362,7 +407,9 @@ export default function BankPage() {
           </tbody>
         </table>
       </div>
+      </div>
 
+      <div style={{ display: tab === "soal" ? undefined : "none" }}>
       <div className="card" style={{ marginTop: 14 }}>
         <h3>🎲 Bank Soal ({questions.length})</h3>
         <p className="muted" style={{ margin: "6px 0 10px" }}>
@@ -475,7 +522,9 @@ export default function BankPage() {
           <button className="btn btn-primary" type="submit" style={{ marginTop: 10 }}>➕ Tambah Soal</button>
         </form>
       </div>
+      </div>
 
+      <div style={{ display: tab === "template" ? undefined : "none" }}>
       <div className="card" style={{ marginTop: 14 }}>
         <h3>🏫 Template Kelas ({templates.length})</h3>
         <p className="muted" style={{ margin: "6px 0 10px" }}>
@@ -501,7 +550,9 @@ export default function BankPage() {
           <p className="muted">Belum ada template. Simpan dari menu Kelas (tombol "Simpan Template") atau dari halaman kelas.</p>
         )}
       </div>
+      </div>
 
+      <div style={{ display: tab === "jelajahi" ? undefined : "none" }}>
       <div className="card" style={{ marginTop: 14 }}>
         <h3>🔍 Jelajahi Bank Guru Lain</h3>
         <p className="muted" style={{ margin: "6px 0 10px" }}>Salin materi/kuis guru lain ke bank Anda — aslinya tidak berubah.</p>
@@ -520,6 +571,7 @@ export default function BankPage() {
         {exploreMats.length === 0 && exploreQuizzes.length === 0 && (
           <p className="muted">Belum ada bank dari guru lain.</p>
         )}
+      </div>
       </div>
     </main>
   );

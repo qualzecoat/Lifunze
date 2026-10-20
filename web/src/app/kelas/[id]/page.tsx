@@ -443,8 +443,8 @@ export default function KelasDetailPage() {
             onClick={() => setTab(key)}
             style={{
               border: "none", background: "none", padding: "9px 14px", fontWeight: 700, cursor: "pointer",
-              color: tab === key ? "var(--violet)" : "var(--muted)",
-              borderBottom: tab === key ? "3px solid var(--violet)" : "3px solid transparent",
+              color: tab === key ? "var(--primary)" : "var(--muted)",
+              borderBottom: tab === key ? "3px solid var(--primary)" : "3px solid transparent",
               marginBottom: -2, fontSize: ".95rem",
             }}
           >
@@ -470,7 +470,7 @@ export default function KelasDetailPage() {
           </li>
         );
         return (
-          <div className="card" style={{ marginTop: 14, borderLeft: "5px solid var(--violet)" }}>
+          <div className="card" style={{ marginTop: 14, borderLeft: "5px solid var(--primary)" }}>
             <h3>🚀 Mulai Kelas Ini</h3>
             <ul style={{ marginTop: 6 }}>
               {item(hasMeeting, 1, <><strong>Buat pertemuan pertama</strong>{hasMeeting ? " — selesai" : " — pakai form Tambah Pertemuan di bawah daftar pertemuan."}</>)}
@@ -491,7 +491,7 @@ export default function KelasDetailPage() {
                 <strong>{progress.ringkasan.persen_total}%</strong>
               </div>
               <div style={{ background: "var(--border)", borderRadius: 8, height: 12, margin: "6px 0 10px" }}>
-                <div style={{ width: `${progress.ringkasan.persen_total}%`, background: "var(--violet)", height: "100%", borderRadius: 8 }} />
+                <div style={{ width: `${progress.ringkasan.persen_total}%`, background: "var(--primary)", height: "100%", borderRadius: 8 }} />
               </div>
               <p className="muted">
                 Materi dibaca: {progress.ringkasan.materi_dibaca}/{progress.ringkasan.total_materi} ({progress.ringkasan.persen_materi}%) ·
@@ -703,7 +703,7 @@ export default function KelasDetailPage() {
 
       {tab === "siswa" && (<>
       {kelola && (
-        <form className="card" onSubmit={createStudentInClass} style={{ marginTop: 16, borderLeft: "5px solid var(--violet)" }}>
+        <form className="card" onSubmit={createStudentInClass} style={{ marginTop: 16, borderLeft: "5px solid var(--primary)" }}>
           <h3>➕ Siswa Baru — langsung terdaftar di kelas ini</h3>
           <p className="muted" style={{ marginTop: 4 }}>Satu langkah: akun dibuat dan langsung masuk kelas ini. Untuk banyak siswa sekaligus, impor CSV di halaman Siswa kini bisa memilih kelas tujuan.</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12, marginTop: 8 }}>
