@@ -38,6 +38,32 @@ MIME_BY_EXT = {
     ".sb3": "application/octet-stream",
 }
 
+# Validasi magic bytes (Fase 8): ekstensi saja tidak dipercaya — isi file
+# harus cocok dengan tanda tangan formatnya.
+_MAGIC_PREFIXES = {
+    ".png": [b"\x89PNG\r\n\x1a\n"],
+    ".jpg": [b"\xff\xd8\xff"],
+    ".jpeg": [b"\xff\xd8\xff"],
+    ".pdf": [b"%PDF"],
+    ".sb3": [b"PK\x03\x04"],
+    ".zip": [b"PK\x03\x04"],
+}
+
+
+def validate_magic(ext: str, content: bytes) -> bool:
+    if ext == ".mp4":
+        return len(content) >= 8 and content[4:8] == b"ftyp"
+    if ext == ".txt":
+        try:
+            content[:4096].decode("utf-8")
+            return b"\x00" not in content[:4096]
+        except UnicodeDecodeError:
+            return False
+    prefixes = _MAGIC_PREFIXES.get(ext)
+    if prefixes is None:
+        return False
+    return any(content.startswith(p) for p in prefixes)
+
 
 def material_out(m: Material, subject_id: int | None = None) -> dict:
     return {
@@ -211,6 +237,11 @@ async def upload_file(
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(status_code=400, detail=f"Ukuran file melebihi {settings.max_upload_mb} MB.")
+    if not validate_magic(ext, content):
+        raise HTTPException(
+            status_code=400,
+            detail="Isi file tidak cocok dengan formatnya (validasi magic bytes gagal). Unggah file aslinya, bukan hasil ganti nama.",
+        )
 
     safe_name = os.path.basename(file.filename or f"file{ext}").replace("/", "_")
     storage_key = f"materials/{m.id}/{uuid.uuid4().hex}_{safe_name}"

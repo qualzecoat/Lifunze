@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .config import settings
+from .config import settings, validate_production
 from .routers import (
     admin_users,
     ai_settings,
@@ -25,6 +25,25 @@ from .tcml import parse_material, parse_quiz_mcq, parse_quiz_text
 from .tcml.registry import MODULES
 
 app = FastAPI(title="Lifunze API", version="0.2.0")
+
+# Hardening Fase 8: production dengan konfigurasi lemah menolak menyala.
+_problems = validate_production(settings)
+if _problems:
+    raise RuntimeError("Konfigurasi production tidak aman: " + " ".join(_problems))
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if settings.env == "production":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +86,22 @@ class ParseResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "service": settings.app_name}
+
+
+@app.get("/api/v1/health")
+def health_v1():
+    """Health check production: API hidup + DB bisa dijangkau."""
+    from sqlalchemy import text
+
+    from .db import engine
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        db_status = "error"
+    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
 
 
 @app.post("/api/v1/parse/content", response_model=ParseResponse)

@@ -23,20 +23,32 @@ services:
   api:
     build: ./api
     container_name: lifunze-api
+    restart: unless-stopped
     environment:
       LIFUNZE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lifunze}:${POSTGRES_PASSWORD:-lifunze}@db:5432/${POSTGRES_DB:-lifunze}
       LIFUNZE_SECRET_KEY: ${LIFUNZE_SECRET_KEY}
       LIFUNZE_FERNET_KEY: ${LIFUNZE_FERNET_KEY}
       LIFUNZE_ADMIN_USERNAME: ${LIFUNZE_ADMIN_USERNAME}
       LIFUNZE_ADMIN_PASSWORD: ${LIFUNZE_ADMIN_PASSWORD}
+      LIFUNZE_ENV: ${LIFUNZE_ENV:-dev}
+      LIFUNZE_COOKIE_SECURE: ${LIFUNZE_COOKIE_SECURE:-false}
+      LIFUNZE_STORAGE_DIR: /app/storage
+      LIFUNZE_CORS_ORIGINS: ${LIFUNZE_CORS_ORIGINS:-["http://localhost:3000"]}
+    volumes:
+      - apidata:/app/storage
     depends_on:
       db:
         condition: service_healthy
     networks: [lifunze-net]
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        # Kosong = same-origin di balik Caddy (browser memanggil /api relatif).
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}
     container_name: lifunze-web
+    restart: unless-stopped
     depends_on: [api]
     networks: [lifunze-net]
 
@@ -46,6 +58,7 @@ services:
 
 volumes:
   pgdata:
+  apidata:
 
 networks:
   lifunze-net:

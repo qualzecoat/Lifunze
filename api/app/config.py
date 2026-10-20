@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     app_name: str = "lifunze-api"
     debug: bool = False
+    # Lingkungan: "dev" (default) atau "production" — production memicu
+    # validasi konfigurasi ketat saat startup (lihat validate_production).
+    env: str = "dev"
 
     # Cookie sesi: aktifkan Secure di production (di balik HTTPS/Caddy).
     cookie_secure: bool = False
@@ -31,3 +34,24 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_production(s: Settings) -> list[str]:
+    """Daftar masalah konfigurasi production; kosong = aman go-live.
+
+    Hanya ditegakkan bila s.env == 'production' (Fase 8 hardening).
+    """
+    problems: list[str] = []
+    if s.env != "production":
+        return problems
+    if not s.fernet_key:
+        problems.append("LIFUNZE_FERNET_KEY wajib diisi di production.")
+    if s.secret_key == "dev-secret-key-ganti-di-production" or len(s.secret_key) < 24:
+        problems.append("LIFUNZE_SECRET_KEY harus diganti & minimal 24 karakter di production.")
+    if not s.cookie_secure:
+        problems.append("LIFUNZE_COOKIE_SECURE harus true di production (HTTPS).")
+    if not s.database_url.startswith("postgresql"):
+        problems.append("Production wajib memakai PostgreSQL (LIFUNZE_DATABASE_URL).")
+    if s.admin_username and len(s.admin_password) < 12:
+        problems.append("LIFUNZE_ADMIN_PASSWORD minimal 12 karakter di production.")
+    return problems

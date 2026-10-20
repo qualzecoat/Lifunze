@@ -38,7 +38,7 @@ from ..models import (
     User,
 )
 from ..notify import notify
-from .materials import _storage_path
+from .materials import _storage_path, validate_magic
 
 router = APIRouter(tags=["learning"])
 
@@ -382,6 +382,11 @@ async def upload_submission(
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if len(content) > max_bytes:
         raise HTTPException(status_code=400, detail=f"Ukuran file melebihi {settings.max_upload_mb} MB.")
+    if not validate_magic(ext, content):
+        raise HTTPException(
+            status_code=400,
+            detail="Isi file tidak cocok dengan formatnya (validasi magic bytes gagal). Unggah file aslinya, bukan hasil ganti nama.",
+        )
 
     safe_name = os.path.basename(file.filename or f"tugas{ext}").replace("/", "_")
     storage_key = f"submissions/{m.id}/{uuid.uuid4().hex}_{safe_name}"

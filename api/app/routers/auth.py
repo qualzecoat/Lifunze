@@ -25,6 +25,26 @@ from ..security import hash_password, new_csrf_token, new_session_token, verify_
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+# Throttle login (Fase 8): maks 5 kegagalan per username dalam 10 menit,
+# lalu terkunci 5 menit. In-memory — cukup untuk satu instance API.
+import time as _time
+
+_FAILED_LOGINS: dict[str, list[float]] = {}
+_LOGIN_WINDOW = 600.0
+_LOGIN_MAX_FAIL = 5
+_LOGIN_LOCK = 300.0
+
+
+def _login_locked(username: str) -> bool:
+    now = _time.time()
+    fails = [t for t in _FAILED_LOGINS.get(username, []) if now - t < _LOGIN_WINDOW]
+    _FAILED_LOGINS[username] = fails
+    return len(fails) >= _LOGIN_MAX_FAIL and (now - fails[-1]) < _LOGIN_LOCK
+
+
+def _record_login_fail(username: str) -> None:
+    _FAILED_LOGINS.setdefault(username, []).append(_time.time())
+
 MIN_PASSWORD = 8
 
 
@@ -55,13 +75,21 @@ def user_out(user: User) -> dict:
 
 @router.post("/login")
 def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
+    uname = body.username.strip()
+    if _login_locked(uname.lower()):
+        raise HTTPException(
+            status_code=429,
+            detail="Terlalu banyak percobaan login gagal. Tunggu beberapa menit lalu coba lagi.",
+        )
     user = (
         db.query(User)
-        .filter(User.username == body.username.strip(), User.deleted_at.is_(None))
+        .filter(User.username == uname, User.deleted_at.is_(None))
         .first()
     )
     if user is None or not verify_password(body.password, user.password_hash):
+        _record_login_fail(uname.lower())
         raise HTTPException(status_code=401, detail="Username atau password salah.")
+    _FAILED_LOGINS.pop(uname.lower(), None)
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Akun dinonaktifkan. Hubungi admin/guru Anda.")
 

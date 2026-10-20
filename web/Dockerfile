@@ -10,6 +10,10 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Basis API untuk browser: kosong = same-origin (di balik Caddy production);
+# tanpa arg ini default dev http://localhost:8000 dipakai.
+ARG NEXT_PUBLIC_API_BASE=
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 RUN npm run build
 
 FROM node:24-alpine AS runner
