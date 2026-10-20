@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
@@ -56,7 +56,7 @@ export default function BankPage() {
   const [exploreMats, setExploreMats] = useState<ExploreMaterial[]>([]);
   const [exploreQuizzes, setExploreQuizzes] = useState<ExploreQuiz[]>([]);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
-  const [extractKategori, setExtractKategori] = useState("");
+  const [extractFor, setExtractFor] = useState<number | null>(null);
   const [newCat, setNewCat] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -126,11 +126,12 @@ export default function BankPage() {
     load();
   }
 
-  async function extractToBankSoal(q: SavedQuiz) {
+  async function extractToBankSoal(q: SavedQuiz, kategoriId: number | null) {
     setError("");
     setOk("");
+    setExtractFor(null);
     try {
-      const qs = extractKategori ? `?kategori_id=${extractKategori}` : "";
+      const qs = kategoriId ? `?kategori_id=${kategoriId}` : "";
       const r = await apiFetch<{ dimasukkan: number; dilewati: number }>(
         `/api/v1/bank/quizzes/${q.id}/extract-questions${qs}`,
         { method: "POST" },
@@ -313,37 +314,49 @@ export default function BankPage() {
 
       <div className="card">
         <h3>Kuis Tersimpan ({quizzes.length})</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-          <label className="muted" htmlFor="extract-kat">Kategori untuk soal hasil "Ke Bank Soal":</label>
-          <select
-            id="extract-kat"
-            className="select"
-            style={{ width: "auto" }}
-            value={extractKategori}
-            onChange={(e) => setExtractKategori(e.target.value)}
-          >
-            <option value="">Ikuti kategori kuisnya</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.nama}</option>
-            ))}
-          </select>
-        </div>
         <table className="table" style={{ marginTop: 8 }}>
           <thead><tr><th>Judul</th><th>Tipe</th><th>Soal</th><th>Kategori</th><th>Aksi</th></tr></thead>
           <tbody>
             {quizzes.map((q) => (
-              <tr key={q.id}>
+              <Fragment key={q.id}>
+              <tr>
                 <td><strong>{q.judul}</strong></td>
                 <td>{q.tipe === "pilihan_ganda" ? "Pilihan Ganda" : "Esai/Teks"}</td>
                 <td>{q.jumlah_soal}</td>
                 <td>{catName(q.kategori_id)}</td>
                 <td>
                   <span className="row-actions">
-                    <button className="btn btn-sm" onClick={() => extractToBankSoal(q)}>📥 Ke Bank Soal</button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => setExtractFor(extractFor === q.id ? null : q.id)}
+                    >
+                      📥 Ke Bank Soal
+                    </button>
                     <button className="btn btn-sm btn-danger" onClick={() => deleteQuiz(q)}>Hapus</button>
                   </span>
                 </td>
               </tr>
+              {extractFor === q.id && (
+                <tr>
+                  <td colSpan={5} style={{ background: "#f6f3ff" }}>
+                    <span className="muted" style={{ marginRight: 8 }}>
+                      Masukkan soal kuis ini ke bank soal dengan kategori:
+                    </span>
+                    <span className="row-actions" style={{ display: "inline-flex" }}>
+                      <button className="btn btn-sm" onClick={() => extractToBankSoal(q, null)}>
+                        Ikuti kategori kuis ({catName(q.kategori_id)})
+                      </button>
+                      {categories.map((c) => (
+                        <button key={c.id} className="btn btn-sm" onClick={() => extractToBankSoal(q, c.id)}>
+                          {c.nama}
+                        </button>
+                      ))}
+                      <button className="btn btn-sm btn-danger" onClick={() => setExtractFor(null)}>Batal</button>
+                    </span>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {quizzes.length === 0 && <tr><td colSpan={5} className="muted">Belum ada kuis di bank. Kuis dibuat dari pertemuan (modul kuis) lalu bisa disimpan ke bank.</td></tr>}
           </tbody>
