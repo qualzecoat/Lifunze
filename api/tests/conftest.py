@@ -9,6 +9,7 @@ os.environ["LIFUNZE_DATABASE_URL"] = "sqlite:///" + os.path.join(
 )
 os.environ["LIFUNZE_ADMIN_USERNAME"] = "admin"
 os.environ["LIFUNZE_ADMIN_PASSWORD"] = "admin-rahasia-123"
+os.environ["LIFUNZE_STORAGE_DIR"] = os.path.join(tempfile.mkdtemp(prefix="lifunze-storage-"), "storage")
 
 from cryptography.fernet import Fernet  # noqa: E402
 

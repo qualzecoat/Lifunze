@@ -39,6 +39,14 @@ export default function DashboardPage() {
       )}
 
       <div className="grid-cards">
+        <Link href="/kelas" className="card">
+          <h3>🏫 {user.role === "siswa" ? "Kelas Saya" : "Kelola Kelas"}</h3>
+          <p className="muted">
+            {user.role === "siswa"
+              ? "Mata pelajaran yang Anda ikuti beserta materinya."
+              : "Buat mata pelajaran, susun pertemuan & materi, daftarkan siswa."}
+          </p>
+        </Link>
         {staff && (
           <Link href="/siswa" className="card">
             <h3>👩‍🎓 Kelola Siswa</h3>
@@ -52,6 +60,12 @@ export default function DashboardPage() {
           </Link>
         )}
         {staff && (
+          <Link href="/bank" className="card">
+            <h3>📚 Bank Materi & Kuis</h3>
+            <p className="muted">Koleksi pribadi materi & kuis untuk dipakai ulang lintas kelas.</p>
+          </Link>
+        )}
+        {staff && (
           <Link href="/pengaturan-ai" className="card">
             <h3>🤖 Pengaturan AI</h3>
             <p className="muted">Hubungkan provider AI Anda sendiri untuk generate materi & kuis otomatis.</p>
@@ -62,13 +76,6 @@ export default function DashboardPage() {
           <p className="muted">Perbarui password akun Anda.</p>
         </Link>
       </div>
-
-      {user.role === "siswa" && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3>📚 Kelas saya</h3>
-          <p className="muted">Daftar mata pelajaran akan tampil di sini pada fase berikutnya.</p>
-        </div>
-      )}
     </main>
   );
 }

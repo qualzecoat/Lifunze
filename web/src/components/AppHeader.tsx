@@ -27,8 +27,10 @@ export default function AppHeader({ user }: { user: User }) {
       </Link>
       <nav style={{ display: "flex", gap: 16, alignItems: "center", fontSize: ".92rem", flexWrap: "wrap" }}>
         <Link href="/dashboard">Dashboard</Link>
+        <Link href="/kelas">Kelas</Link>
         {(user.role === "guru" || user.role === "admin") && <Link href="/siswa">Kelola Siswa</Link>}
         {user.role === "admin" && <Link href="/admin/users">Kelola User</Link>}
+        {(user.role === "guru" || user.role === "admin") && <Link href="/bank">Bank</Link>}
         {(user.role === "guru" || user.role === "admin") && <Link href="/pengaturan-ai">Pengaturan AI</Link>}
         <Link href="/ganti-password">Ganti Password</Link>
         <span className="muted">
