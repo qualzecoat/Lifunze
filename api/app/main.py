@@ -138,3 +138,15 @@ def parse_quiz_endpoint(req: QuizParseRequest):
 
     res = parse_quiz_v2(req.teks, expected_type=req.tipe)
     return {"success": res["success"], "content": res["content"], "errors": res["errors"]}
+
+
+class StructureRequest(BaseModel):
+    teks: str = Field(..., description="Teks mentah TCML materi/latihan/proyek")
+
+
+@app.post("/api/v1/parse/structure")
+def parse_structure_endpoint(req: StructureRequest):
+    """Ubah dokumen TCML menjadi model blok untuk Mode Blok editor materi."""
+    from .tcml.structure import document_to_blocks
+
+    return document_to_blocks(req.teks)
