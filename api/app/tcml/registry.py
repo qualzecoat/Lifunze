@@ -223,7 +223,7 @@ MODULES = {
     "kuis-pg": {
         "nama": "Kuis Pilihan Ganda",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING", "SUMMARY"],
         "deskripsi": "Kuis pilihan ganda lengkap: opsi berlabel huruf, kunci jawaban (boleh lebih dari satu), dan bobot per soal.",
         "spec": (
             "Struktur kuis PG:\n"
@@ -279,7 +279,7 @@ MODULES = {
     "kuis-esai": {
         "nama": "Kuis Esai",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING", "SUMMARY"],
         "deskripsi": "Kuis esai/teks: pertanyaan terbuka dengan jawaban referensi sebagai pedoman penilaian guru, plus bobot per soal.",
         "spec": (
             "Struktur kuis esai:\n"

@@ -68,8 +68,12 @@ export default function PengaturanAiPage() {
         body: { base_url: form.base_url, api_key: form.api_key },
       });
       setFormModels(res.models);
-      if (res.models.length && !res.models.includes(form.model)) {
-        setForm({ ...form, model: res.models[0] });
+      if (res.models.length) {
+        // Audit #42: update fungsional — form bisa berubah selama await
+        // (guru mengetik nama/base_url); spread `form` lama menimpanya.
+        setForm((prev) =>
+          res.models.includes(prev.model) ? prev : { ...prev, model: res.models[0] },
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengambil model.");
@@ -105,8 +109,10 @@ export default function PengaturanAiPage() {
         method: "POST",
         body: { base_url: s.base_url, setting_id: s.id },
       });
-      setItemModels({ ...itemModels, [s.id]: res.models });
-      setItemModelSel({ ...itemModelSel, [s.id]: s.model ?? res.models[0] ?? "" });
+      // Audit #42: update fungsional agar dua ambil-model bersamaan
+      // tidak saling menimpa.
+      setItemModels((prev) => ({ ...prev, [s.id]: res.models }));
+      setItemModelSel((prev) => ({ ...prev, [s.id]: prev[s.id] ?? s.model ?? res.models[0] ?? "" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengambil model.");
     } finally {

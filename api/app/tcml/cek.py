@@ -35,10 +35,11 @@ HTML hasil render — pengecekan selalu di server dari teks mentah.
 
 from __future__ import annotations
 
+import math
 import re
 
 from .core import ASTBuilder, BlockNode, TextNode, Tokenizer
-from .quiz import _find_child, _parse_options, _raw_text
+from .quiz import _find_child, _parse_options_checked, _raw_text
 
 # Tag blok konten yang boleh hidup di dalam [QUIZ] sebagai pengantar /
 # selingan antar soal (prolog, hint, catatan) — dipakai parse_quiz_v2.
@@ -84,7 +85,7 @@ def parse_cek_node(node: BlockNode, errors: list) -> dict | None:
         w_raw = _raw_text(w_node)
         try:
             bobot = float(w_raw.replace(",", "."))
-            if bobot <= 0:
+            if bobot <= 0 or not math.isfinite(bobot):
                 raise ValueError
         except ValueError:
             errors.append({"line": w_node.line, "message": f"Isi [WEIGHT] di [CEK] tidak valid: '{w_raw}'."})
@@ -108,7 +109,10 @@ def parse_cek_node(node: BlockNode, errors: list) -> dict | None:
         return {"tipe": "teks", "pertanyaan": pertanyaan, "bobot": bobot,
                 "options": [], "jawaban_referensi": answer_raw}
 
-    options = _parse_options(_raw_text(opt_node)) if opt_node is not None else []
+    options, opsi_error = _parse_options_checked(_raw_text(opt_node)) if opt_node is not None else ([], None)
+    if opsi_error:
+        errors.append({"line": node.line, "message": f"Blok [CEK]: {opsi_error}"})
+        return None
     if len(options) < 2:
         errors.append({"line": node.line, "message": "Blok [CEK] PG wajib punya [OPTIONS] dengan minimal 2 pilihan."})
         return None

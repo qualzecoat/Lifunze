@@ -174,7 +174,7 @@ class FetchModelsIn(BaseModel):
     setting_id: Optional[int] = None  # bila api_key kosong: pakai key tersimpan milik setting ini
 
 
-@router.post("/settings/fetch-models")
+@router.post("/settings/fetch-models", dependencies=[Depends(require_csrf)])
 def fetch_models(
     body: FetchModelsIn,
     user: User = Depends(guru_admin),

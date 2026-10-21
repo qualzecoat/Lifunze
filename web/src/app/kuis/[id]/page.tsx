@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
@@ -217,10 +217,27 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
     return ms;
   }, [attempt, nowTick]);
 
+  // Audit #45: saat waktu habis, SIMPAN dulu jawaban lokal ke server
+  // sebelum memuat ulang attempt (loadAttempt menimpa state dari server —
+  // jawaban yang belum tersimpan hilang). Efek dijaga ref agar hanya
+  // berjalan sekali per attempt, bukan berulang tiap tick.
+  const kedaluwarsaRef = useRef<number | null>(null);
   useEffect(() => {
-    if (remaining !== null && remaining <= 0 && attempt) {
-      loadAttempt(attempt.attempt.id).catch(() => {});
-    }
+    if (remaining === null || remaining > 0 || !attempt) return;
+    if (attempt.attempt.status !== "in_progress") return;
+    if (kedaluwarsaRef.current === attempt.attempt.id) return;
+    kedaluwarsaRef.current = attempt.attempt.id;
+    const id = attempt.attempt.id;
+    void (async () => {
+      try {
+        await apiFetch(`/api/v1/attempts/${id}/answers`, {
+          method: "PUT",
+          body: { answers: buildPayload() },
+        });
+      } catch { /* server mungkin sudah menutup attempt — tetap muat ulang */ }
+      await loadAttempt(id).catch(() => {});
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remaining, attempt, loadAttempt]);
 
   async function start() {
@@ -443,6 +460,17 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
   const [grades, setGrades] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  // Audit #46: pengelompokan konten dihitung SEKALI (dulu dipanggil di
+  // dalam render per soal → O(n²) dan detail penilaian tak menampilkan
+  // blok konten sama sekali).
+  const kontenKuis = useMemo(
+    () => kelompokkanKonten(quiz.konten, quiz.questions.map((q) => q.id)),
+    [quiz],
+  );
+  const kontenDetail = useMemo(
+    () => kelompokkanKonten(detail?.konten, (detail?.questions ?? []).map((q) => q.id)),
+    [detail],
+  );
 
   const loadResults = useCallback(async () => {
     try {
@@ -541,7 +569,7 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
         <h3>Soal & Kunci</h3>
         {quiz.questions.map((q, i) => (
           <Fragment key={q.id}>
-            {(kelompokkanKonten(quiz.konten, quiz.questions.map((x) => x.id)).sebelum.get(q.id) ?? []).map((k, ki) => (
+            {(kontenKuis.sebelum.get(q.id) ?? []).map((k, ki) => (
               <KontenBlok key={ki} tipe={k.tipe} teks={k.teks} rapat />
             ))}
           <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
@@ -555,7 +583,7 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
           </div>
           </Fragment>
         ))}
-        {kelompokkanKonten(quiz.konten, quiz.questions.map((x) => x.id)).akhir.map((k, ki) => (
+        {kontenKuis.akhir.map((k, ki) => (
           <KontenBlok key={`akhir-${ki}`} tipe={k.tipe} teks={k.teks} rapat />
         ))}
       </div>
@@ -583,7 +611,11 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
         <div className="card" style={{ marginTop: 12 }}>
           <h3>Detail Pengerjaan #{detail.attempt.id} — status {statusLabel(detail.attempt.status)}, skor {detail.attempt.skor ?? "—"}</h3>
           {detail.questions.map((q, i) => (
-            <div key={q.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+            <Fragment key={q.id}>
+            {(kontenDetail.sebelum.get(q.id) ?? []).map((k, ki) => (
+              <KontenBlok key={ki} tipe={k.tipe} teks={k.teks} rapat />
+            ))}
+            <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
               <p><strong>{i + 1}. {q.pertanyaan}</strong> <span className="badge">bobot {q.bobot}</span></p>
               {q.tipe === "pilihan_ganda" ? (
                 <p className="muted">
@@ -608,6 +640,10 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
                 </>
               )}
             </div>
+            </Fragment>
+          ))}
+          {kontenDetail.akhir.map((k, ki) => (
+            <KontenBlok key={`detail-akhir-${ki}`} tipe={k.tipe} teks={k.teks} rapat />
           ))}
           {quiz.tipe === "teks" && detail.attempt.status !== "in_progress" && (
             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>

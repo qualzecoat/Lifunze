@@ -30,6 +30,19 @@ def get_session_and_user(request: Request, db: Session) -> tuple[UserSession, Us
         raise HTTPException(status_code=401, detail="Akun tidak ditemukan.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Akun dinonaktifkan. Hubungi admin/guru Anda.")
+    # Audit #25: kewajiban ganti password sementara ditegakkan di BACKEND
+    # (dulu hanya UI yang mengarahkan — API tetap bisa dipakai langsung).
+    # Jalur yang tetap bebas: profil, logout, dan endpoint ganti password.
+    if user.must_change_password and request.url.path not in (
+        "/api/v1/auth/me",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/change-password",
+        "/api/v1/auth/first-login-password",
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Akun ini masih memakai password sementara — ganti password dulu untuk melanjutkan.",
+        )
     return sess, user
 
 

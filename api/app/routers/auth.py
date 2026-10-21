@@ -25,8 +25,11 @@ from ..security import hash_password, new_csrf_token, new_session_token, verify_
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-# Throttle login (Fase 8): maks 5 kegagalan per username dalam 10 menit,
-# lalu terkunci 5 menit. In-memory — cukup untuk satu instance API.
+# Throttle login (Fase 8): maks 5 kegagalan per (username, IP) dalam
+# 10 menit, lalu terkunci 5 menit. In-memory — cukup untuk satu instance API.
+# Audit #24: dulu kuncinya username saja — siapa pun bisa mengunci akun
+# orang lain dari mana pun. Sekarang per pasangan username+IP, dan entri
+# basi dibersihkan berkala agar dict tidak tumbuh tanpa batas.
 import time as _time
 
 _FAILED_LOGINS: dict[str, list[float]] = {}
@@ -35,15 +38,32 @@ _LOGIN_MAX_FAIL = 5
 _LOGIN_LOCK = 300.0
 
 
-def _login_locked(username: str) -> bool:
+def _kunci_throttle(username: str, request: Request) -> str:
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = xff or (request.client.host if request.client else "?")
+    return f"{username}|{ip}"
+
+
+def _bersihkan_throttle(now: float) -> None:
+    if len(_FAILED_LOGINS) < 1000:
+        return
+    for kunci in [k for k, v in _FAILED_LOGINS.items() if not v or now - v[-1] >= _LOGIN_WINDOW]:
+        _FAILED_LOGINS.pop(kunci, None)
+
+
+def _login_locked(kunci: str) -> bool:
     now = _time.time()
-    fails = [t for t in _FAILED_LOGINS.get(username, []) if now - t < _LOGIN_WINDOW]
-    _FAILED_LOGINS[username] = fails
+    _bersihkan_throttle(now)
+    fails = [t for t in _FAILED_LOGINS.get(kunci, []) if now - t < _LOGIN_WINDOW]
+    if fails:
+        _FAILED_LOGINS[kunci] = fails
+    else:
+        _FAILED_LOGINS.pop(kunci, None)
     return len(fails) >= _LOGIN_MAX_FAIL and (now - fails[-1]) < _LOGIN_LOCK
 
 
-def _record_login_fail(username: str) -> None:
-    _FAILED_LOGINS.setdefault(username, []).append(_time.time())
+def _record_login_fail(kunci: str) -> None:
+    _FAILED_LOGINS.setdefault(kunci, []).append(_time.time())
 
 MIN_PASSWORD = 8
 
@@ -74,9 +94,10 @@ def user_out(user: User) -> dict:
 
 
 @router.post("/login")
-def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     uname = body.username.strip()
-    if _login_locked(uname.lower()):
+    kunci = _kunci_throttle(uname.lower(), request)
+    if _login_locked(kunci):
         raise HTTPException(
             status_code=429,
             detail="Terlalu banyak percobaan login gagal. Tunggu beberapa menit lalu coba lagi.",
@@ -87,9 +108,9 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
         .first()
     )
     if user is None or not verify_password(body.password, user.password_hash):
-        _record_login_fail(uname.lower())
+        _record_login_fail(kunci)
         raise HTTPException(status_code=401, detail="Username atau password salah.")
-    _FAILED_LOGINS.pop(uname.lower(), None)
+    _FAILED_LOGINS.pop(kunci, None)
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Akun dinonaktifkan. Hubungi admin/guru Anda.")
 

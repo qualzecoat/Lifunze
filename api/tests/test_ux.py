@@ -34,9 +34,18 @@ def test_buat_siswa_langsung_di_kelas(client):
     members = client.get(f"/api/v1/subjects/{sid}/students").json()
     assert any(m["username"] == "rani" for m in members)
 
-    # siswa hasil buat langsung bisa login & melihat kelasnya
+    # siswa hasil buat langsung bisa login & melihat kelasnya — setelah
+    # mengganti password sementara (audit #25 menegakkan ini di backend;
+    # alur UI memang memaksa ganti password pada login pertama).
     c = TestClient(app)
-    login(c, "rani", "password123")
+    csrf_rani = login(c, "rani", "password123")
+    assert c.get(f"/api/v1/subjects/{sid}").status_code == 403
+    r = c.post(
+        "/api/v1/auth/first-login-password",
+        json={"new_password": "password-rani-1"},
+        headers={"x-csrf-token": csrf_rani},
+    )
+    assert r.status_code == 200, r.text
     assert c.get(f"/api/v1/subjects/{sid}").status_code == 200
 
     # guru lain (bukan pengelola) tidak boleh

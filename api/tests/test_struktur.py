@@ -1,5 +1,15 @@
 """Test endpoint /api/v1/parse/structure — fondasi Mode Blok editor materi."""
 
+import pytest
+from tests.conftest import login, make_user
+
+
+@pytest.fixture(autouse=True)
+def _login_parse(client):
+    # Endpoint parse wajib login (audit #26).
+    make_user("guru_struktur", "guru")
+    login(client, "guru_struktur")
+
 MATERI = """[MATERIAL]
 [TITLE]Pecahan Dasar[/TITLE]
 [HEADING]Pengantar[/HEADING]

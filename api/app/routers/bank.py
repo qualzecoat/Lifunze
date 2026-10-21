@@ -276,18 +276,22 @@ def extract_saved_quiz_questions(
             raise HTTPException(status_code=400, detail="Teks kuis bank tidak valid sehingga tidak bisa diekstrak.")
         questions = parsed["content"]["questions"]
 
-    def kunci(tipe: str, pertanyaan: str, options) -> str:
+    # Audit #34: kunci dedupe kini mencakup bobot & jawaban referensi —
+    # dulu soal esai yang sama dengan referensi berbeda (atau bobot lain)
+    # dianggap duplikat dan dibuang.
+    def kunci(tipe: str, pertanyaan: str, options, bobot, referensi) -> str:
         opsi = _json.dumps(options or [], sort_keys=True, ensure_ascii=False)
-        return f"{tipe}|{pertanyaan.strip()}|{opsi}"
+        return f"{tipe}|{pertanyaan.strip()}|{opsi}|{bobot}|{(referensi or '').strip()}"
 
     sudah_ada = {
-        kunci(q.tipe, q.pertanyaan, q.options)
+        kunci(q.tipe, q.pertanyaan, q.options, q.bobot, q.jawaban_referensi)
         for q in db.query(BankQuestion).filter(BankQuestion.dibuat_oleh == user.id)
     }
     dimasukkan, dilewati = 0, 0
     for q in questions:
         options = q.get("options") if s.tipe == "pilihan_ganda" else None
-        k = kunci(s.tipe, q.get("pertanyaan", ""), options)
+        referensi = q.get("jawaban_referensi") if s.tipe == "teks" else None
+        k = kunci(s.tipe, q.get("pertanyaan", ""), options, q.get("bobot", 1.0), referensi)
         if k in sudah_ada:
             dilewati += 1
             continue
@@ -348,6 +352,7 @@ def copy_saved_material(saved_id: int, user: User = Depends(staff), db: Session 
         teks_mentah=src.teks_mentah,
         dibuat_oleh=user.id,
         kategori_id=None,  # kategori bersifat personal; salinan mulai tanpa kategori
+        jenis=src.jenis,  # audit #33: jenis ikut tersalin
     )
     db.add(s)
     db.commit()
@@ -363,6 +368,7 @@ def copy_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = De
     s = SavedQuiz(
         judul=src.judul,
         tipe=src.tipe,
+        jenis=src.jenis,  # audit #33: jenis ikut tersalin
         teks_mentah=src.teks_mentah,
         snapshot=list(src.snapshot) if isinstance(src.snapshot, list) else src.snapshot,
         dibuat_oleh=user.id,

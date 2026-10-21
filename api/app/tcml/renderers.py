@@ -255,6 +255,21 @@ class ExtendedMaterialRenderer(MaterialRenderer):
             self.errors.append({"line": 1, "message": "Missing main block [MATERIAL], [EXERCISE], or [PROJECT]."})
             return ""
 
+        # Audit #18: konten di luar akar materi TIDAK lagi dibuang diam-diam.
+        # Teks bebas di tingkat dokumen dan akar asing (mis. [QUIZ] yang
+        # ditempel ke materi mandiri) kini menjadi error yang jelas.
+        for c in self.root_node.children:
+            if isinstance(c, TextNode) and c.text.strip():
+                self.errors.append({
+                    "line": c.line,
+                    "message": "Ada teks di luar akar [MATERIAL]/[EXERCISE]/[PROJECT] — teks itu tidak akan tampil. Pindahkan ke dalam akar dokumen.",
+                })
+            elif isinstance(c, BlockNode) and c.tag not in ('MATERIAL', 'EXERCISE', 'PROJECT'):
+                self.errors.append({
+                    "line": c.line,
+                    "message": f"Akar [{c.tag}] tidak bisa dimuat sebagai materi. Untuk kuis, buat dokumen/kuis terpisah lewat editor dokumen.",
+                })
+
         html_out = ""
         for node in main_nodes:
             html_out += self._render_node(node)

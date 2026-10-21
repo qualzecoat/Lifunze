@@ -1,5 +1,14 @@
 from fastapi.testclient import TestClient
 from app.main import app
+from tests.conftest import login, make_user
+
+
+def _client_login():
+    """Endpoint parse kini wajib login (audit #26)."""
+    client = TestClient(app)
+    make_user("pengparse", "guru")
+    login(client, "pengparse")
+    return client
 
 
 def test_health():
@@ -10,7 +19,7 @@ def test_health():
 
 
 def test_parse_content_material():
-    client = TestClient(app)
+    client = _client_login()
     teks = "[MATERIAL]\n[TITLE]Halo[/TITLE]\n[PARAGRAPH]Tes[/PARAGRAPH]\n[/MATERIAL]"
     res = client.post("/api/v1/parse/content", json={"teks": teks, "jenis": "material"})
     assert res.status_code == 200
@@ -20,7 +29,7 @@ def test_parse_content_material():
 
 
 def test_parse_content_invalid():
-    client = TestClient(app)
+    client = _client_login()
     teks = "[MATERIAL]\n[TITLE]Tidak ditutup\n[/MATERIAL]"
     res = client.post("/api/v1/parse/content", json={"teks": teks, "jenis": "material"})
     body = res.json()
@@ -29,7 +38,7 @@ def test_parse_content_invalid():
 
 
 def test_tcml_modules():
-    client = TestClient(app)
+    client = _client_login()
     res = client.get("/api/v1/tcml/modules")
     assert res.status_code == 200
     mods = res.json()

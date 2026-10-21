@@ -109,10 +109,14 @@ export default function KelasPage() {
     setError("");
     if (!tplForm.template_id || !tplForm.nama) return;
     try {
-      const r = await apiFetch<{ id: number }>(
+      const r = await apiFetch<{ id: number; peringatan?: string[] }>(
         `/api/v1/class-templates/${tplForm.template_id}/instantiate`,
         { method: "POST", body: { nama: tplForm.nama } },
       );
+      // Audit #36: peringatan (mis. lampiran hilang) ditampilkan, tidak ditelan.
+      if (r.peringatan && r.peringatan.length > 0) {
+        window.alert(`Kelas dibuat, dengan catatan:\n\n${r.peringatan.join("\n")}`);
+      }
       router.push(`/kelas/${r.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal membuat kelas dari template.");

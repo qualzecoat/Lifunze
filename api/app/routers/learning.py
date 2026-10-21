@@ -419,10 +419,9 @@ async def upload_submission(
             status_code=400,
             detail="Format file tidak didukung. Gunakan PNG, JPG, PDF, MP4, ZIP, TXT, atau SB3 (Scratch).",
         )
-    content = await file.read()
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(status_code=400, detail=f"Ukuran file melebihi {settings.max_upload_mb} MB.")
+    from ..uploads import read_upload_limited
+
+    content = await read_upload_limited(file, settings.max_upload_mb * 1024 * 1024)
     if not validate_magic(ext, content):
         raise HTTPException(
             status_code=400,

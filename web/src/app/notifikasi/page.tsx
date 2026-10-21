@@ -73,6 +73,8 @@ export default function NotifikasiPage() {
 
   async function readAll() {
     await apiFetch("/api/v1/notifications/read-all", { method: "POST" });
+    // Audit #31: beri tahu header agar lencana bel langsung nol.
+    window.dispatchEvent(new Event("lifunze:notif-berubah"));
     load();
   }
 
@@ -100,6 +102,15 @@ export default function NotifikasiPage() {
               key={n.id}
               className="card"
               onClick={() => open(n)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                // Audit #31: baris notifikasi bisa dibuka lewat keyboard.
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void open(n);
+                }
+              }}
               style={{ marginBottom: 8, cursor: "pointer", opacity: n.sudah_dibaca ? 0.72 : 1 }}
             >
               <span>{n.sudah_dibaca ? "" : "🔵 "}{teks}</span>

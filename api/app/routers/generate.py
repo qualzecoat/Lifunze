@@ -35,6 +35,7 @@ from ..paket import (
     build_system_prompt,
     can_access_pack,
     pack_module_rows,
+    roots_for_slugs,
     split_documents,
     validate_bundle_document,
     validate_document,
@@ -129,7 +130,7 @@ def _resolve_setting(db: Session, user: User, setting_id: Optional[int]) -> AiSe
     return s
 
 
-def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None) -> str:
+def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None, boleh_materi: bool = True) -> str:
     topik = (brief.get("topik") or "").strip()
     instruksi = (brief.get("instruksi") or "").strip()
     punya_cek = bool(slugs and "cek-pemahaman" in slugs)
@@ -152,12 +153,21 @@ def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None
                 target += "; selipkan 1-2 soal [CEK] Cek Pemahaman bila ada konsep yang perlu dicek sebelum praktik"
         elif jenis_dok in ("kuis", "ujian"):
             nama = "UJIAN" if jenis_dok == "ujian" else "KUIS"
+            # Audit #20: bacaan pendamping hanya ditawarkan bila paket memang
+            # mengizinkan akar materi — dulu selalu ditawarkan sehingga draf
+            # bisa gugur oleh validasi paketnya sendiri.
+            pendamping = (
+                "; boleh didahului satu root [MATERIAL] bacaan "
+                "pendamping singkat bila materinya memang perlu dibaca dulu"
+                if boleh_materi
+                else "; dokumen HANYA berisi root [QUIZ] (paket ini tidak mengizinkan akar materi pendamping)"
+            )
             target = (
                 f"satu DOKUMEN {nama} betulan: root [QUIZ] yang diawali blok pengantar "
                 "(paragraf sambutan/konteks dan [NOTE] petunjuk pengerjaan"
                 + (", [WARNING] aturan ujian" if jenis_dok == "ujian" else "")
-                + ") lalu soal-soalnya; boleh didahului satu root [MATERIAL] bacaan "
-                "pendamping singkat bila materinya memang perlu dibaca dulu"
+                + ") lalu soal-soalnya"
+                + pendamping
             )
             if jenis_dok == "kuis":
                 target += ". [HINT] boleh diselipkan di antara soal sebagai petunjuk"
@@ -204,7 +214,9 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
 
     system_prompt = build_system_prompt(db, pack, body.kind)
     slugs = [m.slug for m in pack_module_rows(db, pack)]
-    user_prompt = _brief_to_user_prompt(body.kind, body.brief, slugs)
+    roots_pack = pack.allowed_roots or roots_for_slugs(slugs)
+    boleh_materi = any(r in roots_pack for r in ("MATERIAL", "EXERCISE", "PROJECT"))
+    user_prompt = _brief_to_user_prompt(body.kind, body.brief, slugs, boleh_materi=boleh_materi)
     job = GenerationJob(
         user_id=user.id,
         pack_id=pack.id,

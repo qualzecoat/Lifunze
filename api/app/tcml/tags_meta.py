@@ -393,6 +393,14 @@ _PENGANTAR_PG = {
         "spec": "- [WARNING]Peringatan penting.[/WARNING] di dalam [QUIZ] sebelum soal pertama atau di antara soal (bukan soal, tidak dinilai).",
         "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
     },
+    # Audit #19: [SUMMARY] valid di engine kuis (KONTEN_KUIS_TAGS) tetapi
+    # dulu tidak terdaftar di modul kuis — AI yang memakainya ditolak
+    # validasi lapis-2 paket.
+    "SUMMARY": {
+        "nama": "Ringkasan Kuis", "desc": "Ringkasan materi singkat sebagai pengantar atau penutup bagian kuis.",
+        "spec": "- [SUMMARY]Ringkasan singkat.[/SUMMARY] di dalam [QUIZ] sebelum soal pertama atau di antara soal (bukan soal, tidak dinilai).",
+        "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
+    },
 }
 TAGS_META["kuis-pg"].update(_PENGANTAR_PG)
 TAGS_META["kuis-esai"].update(

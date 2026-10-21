@@ -63,7 +63,11 @@ async def import_students(
 
         target_subject = get_subject(db, subject_id)
         require_subject_manage(db, actor, target_subject)
-    raw = await file.read()
+    # Audit #27: baca terbatas + batas jumlah baris (tiap baris = hash
+    # password Argon2 yang mahal; CSV raksasa = DoS CPU).
+    from ..uploads import read_upload_limited
+
+    raw = await read_upload_limited(file, 2 * 1024 * 1024)
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -74,9 +78,15 @@ async def import_students(
             status_code=400,
             detail="Header CSV wajib memuat kolom username dan password (nama_lengkap opsional).",
         )
+    baris = list(reader)
+    if len(baris) > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV berisi {len(baris)} baris — batas maksimum 1000 baris per impor. Bagi file menjadi beberapa impor.",
+        )
 
     berhasil, gagal = 0, []
-    for i, row in enumerate(reader, start=2):  # baris 1 = header
+    for i, row in enumerate(baris, start=2):  # baris 1 = header
         username = (row.get("username") or "").strip()
         password = (row.get("password") or "").strip()
         nama = (row.get("nama_lengkap") or "").strip()

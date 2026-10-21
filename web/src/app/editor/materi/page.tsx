@@ -566,6 +566,9 @@ function EditorInner() {
         if (bankParam) {
           await apiFetch(`/api/v1/bank/materials/${bankParam}`, { method: "PATCH", body });
           setOk("Materi bank diperbarui.");
+          // Audit #23: cabang ini dulu tidak menandai bersih — guru tetap
+          // diperingatkan "belum tersimpan" & draf autosave terus ditulis.
+          tandaiBersih();
         } else {
           await apiFetch("/api/v1/bank/materials", { method: "POST", body });
           setOk("Tersimpan ke bank.");
@@ -772,10 +775,10 @@ function EditorInner() {
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
         <div className="seg-toggle" role="tablist" aria-label="Mode editor">
-          <button className={editorMode === "blok" ? "on" : ""} onClick={() => void strukturkan(teks)}>
+          <button role="tab" aria-selected={editorMode === "blok"} className={editorMode === "blok" ? "on" : ""} onClick={() => void strukturkan(teks)}>
             🧩 Mode Blok
           </button>
-          <button className={editorMode === "tcml" ? "on" : ""} onClick={() => setEditorMode("tcml")}>
+          <button role="tab" aria-selected={editorMode === "tcml"} className={editorMode === "tcml" ? "on" : ""} onClick={() => setEditorMode("tcml")}>
             {"</>"} Mode TCML
           </button>
         </div>

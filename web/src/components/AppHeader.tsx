@@ -12,11 +12,19 @@ export default function AppHeader({ user }: { user: User }) {
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Audit #31: lencana diambil ulang tiap pindah halaman dan saat ada
+  // peristiwa perubahan notifikasi (mis. "Tandai semua dibaca") — dulu
+  // hanya sekali saat mount sehingga angka basi terus tampil.
   useEffect(() => {
-    apiFetch<{ belum_dibaca: number }>("/api/v1/notifications/summary")
-      .then((r) => setUnread(r.belum_dibaca))
-      .catch(() => {});
-  }, []);
+    const muat = () => {
+      apiFetch<{ belum_dibaca: number }>("/api/v1/notifications/summary")
+        .then((r) => setUnread(r.belum_dibaca))
+        .catch(() => {});
+    };
+    muat();
+    window.addEventListener("lifunze:notif-berubah", muat);
+    return () => window.removeEventListener("lifunze:notif-berubah", muat);
+  }, [pathname]);
 
   async function onLogout() {
     await logout();

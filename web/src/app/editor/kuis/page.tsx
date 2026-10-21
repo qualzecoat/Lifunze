@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import QuizItemsPreview, { type ItemPratinjau } from "@/components/QuizItemsPreview";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface TcmlError {
@@ -106,6 +107,7 @@ function EditorKuisInner() {
   const [acakOpsi, setAcakOpsi] = useState(false);
   const [tampilkanKunci, setTampilkanKunci] = useState(true);
   const [preview, setPreview] = useState<ParsedQuestion[]>([]);
+  const [previewItems, setPreviewItems] = useState<ItemPratinjau[]>([]);
   const [errors, setErrors] = useState<TcmlError[]>([]);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -122,6 +124,7 @@ function EditorKuisInner() {
   async function runPreview(value: string, t: string) {
     if (!value.trim()) {
       setPreview([]);
+      setPreviewItems([]);
       setErrors([]);
       return;
     }
@@ -129,9 +132,18 @@ function EditorKuisInner() {
       const res = await parseTeks(value, t);
       if (res.success && res.content) {
         setPreview(res.content.questions);
+        // Audit #21: pratinjau menggambar urutan dokumen (blok konten
+        // terseling soal), bukan daftar soal saja.
+        const mentah = (res.content.items ?? []) as unknown as ItemPratinjau[];
+        setPreviewItems(
+          mentah.length > 0
+            ? mentah
+            : res.content.questions.map((soal) => ({ jenis: "soal" as const, soal })),
+        );
         setErrors([]);
       } else {
         setPreview([]);
+        setPreviewItems([]);
         setErrors(res.errors ?? []);
       }
     } catch { /* abaikan */ }
@@ -543,18 +555,9 @@ function EditorKuisInner() {
               🔄 Refresh Pratinjau
             </button>
           </div>
-          {preview.map((q, i) => (
-            <div className="card" key={i} style={{ marginBottom: 10 }}>
-              <p><strong>{i + 1}. {q.pertanyaan}</strong> <span className="badge">bobot {q.bobot}</span></p>
-              {q.options.map((o) => (
-                <p key={o.label} style={{ color: o.is_correct ? "var(--ok)" : undefined }}>
-                  {o.is_correct ? "✅" : "▫️"} {o.label}. {o.teks}
-                </p>
-              ))}
-              {q.jawaban_referensi && <p className="muted">Referensi: {q.jawaban_referensi}</p>}
-            </div>
-          ))}
-          {preview.length === 0 && (
+          {preview.length > 0 ? (
+            <QuizItemsPreview items={previewItems} />
+          ) : (
             <div className="card"><p className="muted">Pratinjau soal muncul di sini setelah format valid.</p></div>
           )}
         </div>

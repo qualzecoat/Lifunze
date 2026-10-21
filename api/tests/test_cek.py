@@ -48,6 +48,8 @@ def test_cek_terekstrak_dan_render_tanpa_kunci():
 def test_parse_content_untuk_pratinjau_memuat_definisi_cek(client):
     """Pratinjau editor menerima definisi CEK dari teks yang dikirim,
     sementara HTML-nya tetap placeholder tanpa kunci/referensi."""
+    make_user("guru_parse_cek", "guru")
+    login(client, "guru_parse_cek")
     res = client.post(
         "/api/v1/parse/content",
         json={"teks": MATERI_CEK, "jenis": "material"},

@@ -27,6 +27,7 @@ Format legacy v1 (SOAL n / JUDUL: dsb.) tetap didukung lewat fallback ke
 parser lama lalu dinormalisasi.
 """
 
+import math
 import re
 
 from .core import ASTBuilder, BlockNode, TextNode, Tokenizer
@@ -52,6 +53,13 @@ def _find_child(block: BlockNode, tag: str):
 
 def _parse_options(raw: str):
     """Baris opsi 'A. teks' -> list (label, teks). Tanpa prefiks: label berurutan."""
+    options, _ = _parse_options_checked(raw)
+    return options
+
+
+def _parse_options_checked(raw: str):
+    """Seperti _parse_options, plus pesan error (audit #15/#38): label ganda
+    dan opsi tanpa label melebihi Z TIDAK lagi diterima/dipotong diam-diam."""
     options = []
     next_idx = 0
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -67,12 +75,16 @@ def _parse_options(raw: str):
                 next_idx = max(next_idx, letters.index(label) + 1)
         else:
             if next_idx >= len(letters):
-                break
+                return options, "Jumlah opsi melebihi 26 (label A–Z). Kurangi opsi atau beri label huruf secara eksplisit."
             label = letters[next_idx]
             next_idx += 1
             teks = line
         options.append({"label": label, "teks": teks, "is_correct": False})
-    return options
+    labels = [o["label"] for o in options]
+    ganda = sorted({l for l in labels if labels.count(l) > 1})
+    if ganda:
+        return options, f"Label opsi ganda: {', '.join(ganda)} — setiap opsi wajib berlabel unik."
+    return options, None
 
 
 def _normalize_legacy(questions: list, tipe: str) -> dict:
@@ -102,12 +114,27 @@ def _normalize_legacy(questions: list, tipe: str) -> dict:
     return {"tipe": tipe, "questions": out, "items": [{"jenis": "soal", "soal": q} for q in out]}
 
 
-def _legacy_fallback(raw_text: str) -> dict:
+def _legacy_fallback(raw_text: str, expected_type: str | None = None) -> dict:
+    """Fallback format legacy v1. Audit #30: tipe hasil fallback WAJIB
+    cocok dengan expected_type — dulu kuis esai yang diminta bisa kembali
+    sebagai PG (atau sebaliknya) dan Quiz.tipe berbeda dari soal-soalnya."""
     res = parse_quiz_mcq(raw_text)
     if res["success"] and res["content"]:
+        if expected_type and expected_type != "pilihan_ganda":
+            return {
+                "success": False,
+                "content": None,
+                "errors": [{"line": 1, "message": f"Quiz type mismatch: expected {expected_type}, got pilihan_ganda (format legacy)."}],
+            }
         return {"success": True, "content": _normalize_legacy(res["content"], "pilihan_ganda"), "errors": []}
     res2 = parse_quiz_text(raw_text)
     if res2["success"] and res2["content"]:
+        if expected_type and expected_type != "teks":
+            return {
+                "success": False,
+                "content": None,
+                "errors": [{"line": 1, "message": f"Quiz type mismatch: expected {expected_type}, got teks (format legacy)."}],
+            }
         return {"success": True, "content": _normalize_legacy(res2["content"], "teks"), "errors": []}
     if not res["success"]:
         return {"success": False, "content": None, "errors": res["errors"]}
@@ -121,7 +148,7 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
     tidak cocok, hasilnya error (meniru perilaku mismatch v1).
     """
     if "[QUIZ]" not in raw_text.upper():
-        return _legacy_fallback(raw_text)
+        return _legacy_fallback(raw_text, expected_type)
 
     tokens = Tokenizer(raw_text).tokenize()
     builder = ASTBuilder(tokens)
@@ -159,6 +186,7 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
 
     questions = []
     items = []  # urutan tampil: blok konten (prolog/hint) terseling soal
+    nomor_diharapkan = 1  # audit #38: pembungkus soal wajib berurutan 1,2,3,...
     for child in quiz_block.children:
         if isinstance(child, TextNode):
             teks_bebas = child.text.strip()
@@ -194,6 +222,21 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
                 "message": f"Blok [{child.tag}] tidak dikenal di dalam [QUIZ] dan tidak dimuat. Periksa nama bloknya.",
             })
             continue
+        # Audit #38: nomor pembungkus wajib angka & berurutan dari 1.
+        akhiran = child.tag[len("QUESTION"):].strip()
+        if not akhiran.isdigit():
+            errors.append({
+                "line": child.line,
+                "message": f"Pembungkus soal [{child.tag}] tidak valid — nomor soal wajib angka, contoh [QUESTION 1].",
+            })
+            continue
+        if int(akhiran) != nomor_diharapkan:
+            errors.append({
+                "line": child.line,
+                "message": f"Nomor soal tidak berurutan: ditemukan [QUESTION {akhiran}], seharusnya [QUESTION {nomor_diharapkan}].",
+            })
+            continue
+        nomor_diharapkan += 1
         q_node = _find_child(child, "QUESTION")
         q_text = _raw_text(q_node) if q_node is not None else ""
         if not q_text:
@@ -206,7 +249,7 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
             w_raw = _raw_text(w_node)
             try:
                 bobot = float(w_raw.replace(",", "."))
-                if bobot <= 0:
+                if bobot <= 0 or not math.isfinite(bobot):
                     raise ValueError
             except ValueError:
                 errors.append({"line": w_node.line, "message": f"Invalid [WEIGHT] value: '{w_raw}'."})
@@ -217,7 +260,10 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
 
         if tipe == "pilihan_ganda":
             opt_node = _find_child(child, "OPTIONS")
-            options = _parse_options(_raw_text(opt_node)) if opt_node is not None else []
+            options, opsi_error = _parse_options_checked(_raw_text(opt_node)) if opt_node is not None else ([], None)
+            if opsi_error:
+                errors.append({"line": child.line, "message": f"Question [{child.tag}]: {opsi_error}"})
+                continue
             if len(options) < 2:
                 errors.append({"line": child.line, "message": f"Question [{child.tag}] needs at least 2 options in [OPTIONS]."})
                 continue

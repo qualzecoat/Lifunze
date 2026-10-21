@@ -516,8 +516,8 @@ export default function PaketPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <h3 style={{ margin: 0 }}>{editId ? "Edit Paket" : "Buat Paket Baru"}</h3>
           <div className="seg-toggle" role="tablist" aria-label="Mode penyusunan">
-            <button type="button" className={mode === "mudah" ? "on" : ""} onClick={() => setMode("mudah")}>🌱 Mode Mudah</button>
-            <button type="button" className={mode === "lanjut" ? "on" : ""} onClick={() => setMode("lanjut")}>🛠️ Mode Lanjutan</button>
+            <button type="button" role="tab" aria-selected={mode === "mudah"} className={mode === "mudah" ? "on" : ""} onClick={() => setMode("mudah")}>🌱 Mode Mudah</button>
+            <button type="button" role="tab" aria-selected={mode === "lanjut"} className={mode === "lanjut" ? "on" : ""} onClick={() => setMode("lanjut")}>🛠️ Mode Lanjutan</button>
           </div>
         </div>
         <div style={{ marginTop: 10 }}>
@@ -542,6 +542,15 @@ export default function PaketPage() {
                       onClick={() => toggleModule(m.slug)}
                       role="button"
                       aria-pressed={aktif}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        // Audit #31: kartu modul bisa dioperasikan keyboard.
+                        // Tombol Contoh di dalam kartu menangani tombolnya sendiri.
+                        if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                          e.preventDefault();
+                          toggleModule(m.slug);
+                        }
+                      }}
                     >
                       <div className="check-badge">✓</div>
                       <div className="modcard-ikon">{m.ikon}</div>

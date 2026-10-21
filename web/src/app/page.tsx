@@ -38,7 +38,7 @@ export default function Home() {
           padding: "6px 16px",
         }}
       >
-        🚧 Fase 0 — fondasi sedang dibangun
+        ✨ Sudah live — kelas, kuis, bank soal & generate AI siap dipakai
       </p>
     </main>
   );

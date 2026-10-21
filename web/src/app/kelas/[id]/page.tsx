@@ -438,6 +438,13 @@ export default function KelasDetailPage() {
       setComposeFor(null);
       return;
     }
+    // Audit #43: panel memakai state tunggal bersama — reset isian agar
+    // parameter dari pertemuan lain tidak terbawa ke pertemuan ini.
+    setCJudul("");
+    setCJumlah("5");
+    setCTipe("pilihan_ganda");
+    setCKategori("");
+    setCDurasi("");
     try {
       setCCategories(await apiFetch<{ id: number; nama: string }[]>("/api/v1/bank/categories"));
       setComposeFor(meetingId);

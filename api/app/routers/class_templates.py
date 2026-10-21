@@ -188,6 +188,41 @@ def instantiate_template(
 
     t = _own_template(db, user, template_id)
     data = t.data or {}
+
+    # Audit #36: validasi SEMUA isi template SEBELUM membuat kelas. Dulu
+    # materi/kuis yang gagal parse tetap dibuat (rendered_html kosong /
+    # tanpa soal) dan kelas setengah jadi ter-commit.
+    masalah: list[str] = []
+    rencana: list[tuple[dict, list, list]] = []
+    for i, mdata in enumerate(data.get("meetings", []), start=1):
+        parsed_materi = []
+        for mtdata in mdata.get("materials", []):
+            parsed = parse_material(mtdata.get("teks_mentah", ""))
+            if not parsed["success"]:
+                pesan = parsed["errors"][0]["message"] if parsed["errors"] else "parse gagal"
+                masalah.append(f"Pertemuan {i}, materi '{mtdata.get('judul') or 'Materi'}': {pesan}")
+            parsed_materi.append(parsed)
+        parsed_kuis = []
+        for qdata in mdata.get("quizzes", []):
+            parsed = parse_quiz_v2(
+                qdata.get("teks_mentah", ""), expected_type=qdata.get("tipe") or "pilihan_ganda"
+            )
+            if not parsed["success"]:
+                pesan = parsed["errors"][0]["message"] if parsed["errors"] else "parse gagal"
+                masalah.append(f"Pertemuan {i}, kuis '{qdata.get('judul') or 'Kuis'}': {pesan}")
+            parsed_kuis.append(parsed)
+        rencana.append((mdata, parsed_materi, parsed_kuis))
+    if masalah:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Template mengandung isi yang tidak valid — kelas tidak dibuat. "
+                + "; ".join(masalah[:5])
+                + (f" (dan {len(masalah) - 5} masalah lain)" if len(masalah) > 5 else "")
+            ),
+        )
+
+    peringatan: list[str] = []
     subject = Subject(
         nama=body.nama.strip(),
         deskripsi=body.deskripsi if body.deskripsi is not None else t.deskripsi,
@@ -196,7 +231,7 @@ def instantiate_template(
     db.add(subject)
     db.flush()
 
-    for i, mdata in enumerate(data.get("meetings", []), start=1):
+    for i, (mdata, parsed_materi, parsed_kuis) in enumerate(rencana, start=1):
         meeting = Meeting(
             subject_id=subject.id,
             judul=mdata.get("judul") or f"Pertemuan {i}",
@@ -217,8 +252,7 @@ def instantiate_template(
                 grup_map[grup_lama] = uuid.uuid4().hex
             return grup_map[grup_lama]
 
-        for mtdata in mdata.get("materials", []):
-            parsed = parse_material(mtdata.get("teks_mentah", ""))
+        for mtdata, parsed in zip(mdata.get("materials", []), parsed_materi):
             material = Material(
                 meeting_id=meeting.id,
                 judul=mtdata.get("judul") or "Materi",
@@ -234,6 +268,12 @@ def instantiate_template(
             for fdata in mtdata.get("files", []):
                 src = _path(fdata["storage_key"])
                 if not os.path.exists(src):
+                    # Audit #36: file hilang tidak lagi hilang diam-diam —
+                    # dilaporkan ke pemanggil sebagai peringatan.
+                    peringatan.append(
+                        f"File '{fdata.get('original_filename') or 'lampiran'}' pada materi "
+                        f"'{material.judul}' tidak ditemukan di penyimpanan template dan tidak disalin."
+                    )
                     continue
                 safe = os.path.basename(fdata.get("original_filename") or "file")
                 new_key = f"materials/{material.id}/{uuid.uuid4().hex}_{safe}"
@@ -249,7 +289,7 @@ def instantiate_template(
                         size_bytes=fdata.get("size_bytes"),
                     )
                 )
-        for qdata in mdata.get("quizzes", []):
+        for qdata, parsed in zip(mdata.get("quizzes", []), parsed_kuis):
             quiz = Quiz(
                 meeting_id=meeting.id,
                 judul=qdata.get("judul") or "Kuis",
@@ -267,8 +307,7 @@ def instantiate_template(
             )
             db.add(quiz)
             db.flush()
-            parsed = parse_quiz_v2(quiz.teks_mentah, expected_type=quiz.tipe)
-            if parsed["success"]:
-                _create_questions(db, quiz, parsed["content"]["questions"])
+            # Sudah divalidasi di awal — di sini pasti sukses.
+            _create_questions(db, quiz, parsed["content"]["questions"])
     db.commit()
-    return {"id": subject.id, "nama": subject.nama}
+    return {"id": subject.id, "nama": subject.nama, "peringatan": peringatan}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import MaterialPreview, { type MaterialPreviewCek } from "@/components/MaterialPreview";
+import QuizItemsPreview, { type ItemPratinjau } from "@/components/QuizItemsPreview";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface TcmlError {
@@ -463,11 +464,13 @@ function EditorDokumenInner() {
   const [cardsPg, setCardsPg] = useState<CardSoal[]>([kartuKosong()]);
   const [teksPg, setTeksPg] = useState("");
   const [previewPg, setPreviewPg] = useState<ParsedQuestion[]>([]);
+  const [previewPgItems, setPreviewPgItems] = useState<ItemPratinjau[]>([]);
   const [errorsPg, setErrorsPg] = useState<TcmlError[]>([]);
   const [modeEsai, setModeEsai] = useState<"form" | "tcml">("form");
   const [cardsEsai, setCardsEsai] = useState<CardSoal[]>([kartuKosong()]);
   const [teksEsai, setTeksEsai] = useState("");
   const [previewEsai, setPreviewEsai] = useState<ParsedQuestion[]>([]);
+  const [previewEsaiItems, setPreviewEsaiItems] = useState<ItemPratinjau[]>([]);
   const [errorsEsai, setErrorsEsai] = useState<TcmlError[]>([]);
 
   const idBerikut = useRef(1);
@@ -583,9 +586,11 @@ function EditorDokumenInner() {
     tipe: "pilihan_ganda" | "teks",
     setPreview: (q: ParsedQuestion[]) => void,
     setErrors: (e: TcmlError[]) => void,
+    setItems?: (i: ItemPratinjau[]) => void,
   ) {
     if (!value.trim()) {
       setPreview([]);
+      setItems?.([]);
       setErrors([]);
       return;
     }
@@ -593,9 +598,18 @@ function EditorDokumenInner() {
       const res = await parseKuis(value, tipe);
       if (res.success && res.content) {
         setPreview(res.content.questions);
+        // Audit #21: pratinjau mengikuti urutan dokumen (blok konten
+        // terseling soal), bukan daftar soal saja.
+        const mentah = ((res.content as { items?: unknown[] }).items ?? []) as unknown as ItemPratinjau[];
+        setItems?.(
+          mentah.length > 0
+            ? mentah
+            : res.content.questions.map((soal) => ({ jenis: "soal" as const, soal })),
+        );
         setErrors([]);
       } else {
         setPreview([]);
+        setItems?.([]);
         setErrors(res.errors ?? []);
       }
     } catch { /* diam */ }
@@ -605,13 +619,13 @@ function EditorDokumenInner() {
     setCardsPg(next);
     const built = kartuKeTeks(next, "pilihan_ganda");
     setTeksPg(built);
-    void runPreviewKuis(built, "pilihan_ganda", setPreviewPg, setErrorsPg);
+    void runPreviewKuis(built, "pilihan_ganda", setPreviewPg, setErrorsPg, setPreviewPgItems);
   }
   function sinkronKartuEsai(next: CardSoal[]) {
     setCardsEsai(next);
     const built = kartuKeTeks(next, "teks");
     setTeksEsai(built);
-    void runPreviewKuis(built, "teks", setPreviewEsai, setErrorsEsai);
+    void runPreviewKuis(built, "teks", setPreviewEsai, setErrorsEsai, setPreviewEsaiItems);
   }
 
   async function uraiKartu(
@@ -752,7 +766,7 @@ function EditorDokumenInner() {
     if (d.teksPg) {
       setAktifPg(true);
       setTeksPg(d.teksPg);
-      void runPreviewKuis(d.teksPg, "pilihan_ganda", setPreviewPg, setErrorsPg);
+      void runPreviewKuis(d.teksPg, "pilihan_ganda", setPreviewPg, setErrorsPg, setPreviewPgItems);
       await uraiKartu(d.teksPg, "pilihan_ganda", setCardsPg, setErrorsPg);
     } else {
       setAktifPg(false);
@@ -760,7 +774,7 @@ function EditorDokumenInner() {
     if (d.teksEsai) {
       setAktifEsai(true);
       setTeksEsai(d.teksEsai);
-      void runPreviewKuis(d.teksEsai, "teks", setPreviewEsai, setErrorsEsai);
+      void runPreviewKuis(d.teksEsai, "teks", setPreviewEsai, setErrorsEsai, setPreviewEsaiItems);
       await uraiKartu(d.teksEsai, "teks", setCardsEsai, setErrorsEsai);
     } else {
       setAktifEsai(false);
@@ -1169,7 +1183,7 @@ function EditorDokumenInner() {
     setTeksPg(v);
     if (debouncePg.current) clearTimeout(debouncePg.current);
     debouncePg.current = setTimeout(
-      () => void runPreviewKuis(v, "pilihan_ganda", setPreviewPg, setErrorsPg),
+      () => void runPreviewKuis(v, "pilihan_ganda", setPreviewPg, setErrorsPg, setPreviewPgItems),
       600,
     );
   }
@@ -1177,7 +1191,7 @@ function EditorDokumenInner() {
     setTeksEsai(v);
     if (debounceEsai.current) clearTimeout(debounceEsai.current);
     debounceEsai.current = setTimeout(
-      () => void runPreviewKuis(v, "teks", setPreviewEsai, setErrorsEsai),
+      () => void runPreviewKuis(v, "teks", setPreviewEsai, setErrorsEsai, setPreviewEsaiItems),
       600,
     );
   }
@@ -1391,8 +1405,8 @@ function EditorDokumenInner() {
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>📖 Bagian Materi</h3>
             <div className="seg-toggle" role="tablist" aria-label="Mode bagian materi">
-              <button className={modeMateri === "blok" ? "on" : ""} onClick={() => void strukturkanMateri(teksMateri)}>🧩 Mode Blok</button>
-              <button className={modeMateri === "tcml" ? "on" : ""} onClick={() => setModeMateri("tcml")}>{"</>"} Mode TCML</button>
+              <button role="tab" aria-selected={modeMateri === "blok"} className={modeMateri === "blok" ? "on" : ""} onClick={() => void strukturkanMateri(teksMateri)}>🧩 Mode Blok</button>
+              <button role="tab" aria-selected={modeMateri === "tcml"} className={modeMateri === "tcml" ? "on" : ""} onClick={() => setModeMateri("tcml")}>{"</>"} Mode TCML</button>
             </div>
           </div>
           {noticeMateri && <div className="alert" style={{ marginTop: 10 }}>{noticeMateri}</div>}
@@ -1496,7 +1510,7 @@ function EditorDokumenInner() {
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>🧪 Soal Pilihan Ganda</h3>
             <div className="seg-toggle" role="tablist" aria-label="Mode soal PG">
-              <button
+              <button role="tab" aria-selected={modePg === "form"}
                 className={modePg === "form" ? "on" : ""}
                 onClick={async () => {
                   if (await uraiKartu(teksPg, "pilihan_ganda", setCardsPg, setErrorsPg)) setModePg("form");
@@ -1504,7 +1518,7 @@ function EditorDokumenInner() {
               >
                 📝 Formulir
               </button>
-              <button className={modePg === "tcml" ? "on" : ""} onClick={() => setModePg("tcml")}>{"</>"} Mode TCML</button>
+              <button role="tab" aria-selected={modePg === "tcml"} className={modePg === "tcml" ? "on" : ""} onClick={() => setModePg("tcml")}>{"</>"} Mode TCML</button>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, marginTop: 10 }}>
@@ -1534,7 +1548,7 @@ function EditorDokumenInner() {
             </div>
             <div>
               <label className="label" style={{ marginTop: 0 }}>Pratinjau soal PG</label>
-              <PratinjauSoal questions={previewPg} />
+              <PratinjauSoal items={previewPgItems} />
             </div>
           </div>
         </section>
@@ -1546,7 +1560,7 @@ function EditorDokumenInner() {
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <h3 style={{ margin: 0 }}>📝 Soal Esai</h3>
             <div className="seg-toggle" role="tablist" aria-label="Mode soal esai">
-              <button
+              <button role="tab" aria-selected={modeEsai === "form"}
                 className={modeEsai === "form" ? "on" : ""}
                 onClick={async () => {
                   if (await uraiKartu(teksEsai, "teks", setCardsEsai, setErrorsEsai)) setModeEsai("form");
@@ -1554,7 +1568,7 @@ function EditorDokumenInner() {
               >
                 📝 Formulir
               </button>
-              <button className={modeEsai === "tcml" ? "on" : ""} onClick={() => setModeEsai("tcml")}>{"</>"} Mode TCML</button>
+              <button role="tab" aria-selected={modeEsai === "tcml"} className={modeEsai === "tcml" ? "on" : ""} onClick={() => setModeEsai("tcml")}>{"</>"} Mode TCML</button>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, marginTop: 10 }}>
@@ -1584,7 +1598,7 @@ function EditorDokumenInner() {
             </div>
             <div>
               <label className="label" style={{ marginTop: 0 }}>Pratinjau soal esai</label>
-              <PratinjauSoal questions={previewEsai} />
+              <PratinjauSoal items={previewEsaiItems} />
             </div>
           </div>
         </section>
@@ -1754,34 +1768,12 @@ function DaftarKartuSoal({
   );
 }
 
-function PratinjauSoal({ questions }: { questions: ParsedQuestion[] }) {
-  if (questions.length === 0) {
-    return (
-      <div className="card"><p className="muted">Pratinjau muncul setelah soal valid.</p></div>
-    );
-  }
+function PratinjauSoal({ items }: { items: ItemPratinjau[] }) {
+  // Audit #21: blok konten kuis (pengantar/NOTE/HINT/dst.) ikut tampil
+  // sesuai urutan dokumen lewat komponen bersama QuizItemsPreview.
   return (
     <div className="card">
-      {questions.map((q, i) => (
-        <div key={i} style={{ marginBottom: 14 }}>
-          <p style={{ margin: 0 }}>
-            <strong>{i + 1}.</strong> {q.pertanyaan}{" "}
-            <span className="muted">(bobot {q.bobot})</span>
-          </p>
-          {q.options.length > 0 && (
-            <ul style={{ margin: "6px 0 0 18px" }}>
-              {q.options.map((o, j) => (
-                <li key={j}>
-                  {o.label}. {o.teks} {o.is_correct ? "✓" : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-          {q.jawaban_referensi && (
-            <p className="muted" style={{ marginTop: 4 }}>Referensi: {q.jawaban_referensi}</p>
-          )}
-        </div>
-      ))}
+      <QuizItemsPreview items={items} />
     </div>
   );
 }

@@ -232,10 +232,14 @@ export default function BankPage() {
     if (!nama) return;
     setError("");
     try {
-      const r = await apiFetch<{ id: number }>(`/api/v1/class-templates/${t.id}/instantiate`, {
+      const r = await apiFetch<{ id: number; peringatan?: string[] }>(`/api/v1/class-templates/${t.id}/instantiate`, {
         method: "POST",
         body: { nama },
       });
+      // Audit #36: peringatan (mis. lampiran hilang) ditampilkan, tidak ditelan.
+      if (r.peringatan && r.peringatan.length > 0) {
+        window.alert(`Kelas dibuat, dengan catatan:\n\n${r.peringatan.join("\n")}`);
+      }
       router.push(`/kelas/${r.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal membuat kelas dari template.");

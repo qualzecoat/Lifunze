@@ -87,7 +87,8 @@ def _set_modules(
     module_slugs: list[str],
     tag_pilihan: Optional[dict] = None,
 ) -> None:
-    modules_by_slug = sync_tag_modules(db)
+    # Audit #28: validasi DULU (tanpa menyentuh DB) — sync modul yang
+    # men-commit di tengah tidak boleh mendahului penolakan 400.
     try:
         normalized = normalize_tag_pilihan(tag_pilihan)
     except ValueError as e:
@@ -96,11 +97,14 @@ def _set_modules(
         slugs = list(normalized.keys())
     else:
         slugs = list(dict.fromkeys(module_slugs))  # unik, urutan dipertahankan
-    unknown = [s for s in slugs if s not in modules_by_slug]
+    from ..tcml.registry import MODULES as _REGISTRY_MODULES
+
+    unknown = [s for s in slugs if s not in _REGISTRY_MODULES]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Modul tidak dikenal: {', '.join(unknown)}")
     if not slugs:
         raise HTTPException(status_code=400, detail="Pilih minimal satu modul/tag.")
+    modules_by_slug = sync_tag_modules(db, commit=False)
     db.query(ParserPackModule).filter(ParserPackModule.pack_id == pack.id).delete(
         synchronize_session=False
     )

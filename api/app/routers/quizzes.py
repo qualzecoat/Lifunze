@@ -454,6 +454,9 @@ def save_quiz_to_bank(
     quiz = get_quiz(db, quiz_id)
     subject, _ = _subject_of_quiz(db, quiz)
     require_subject_manage(db, user, subject)
+    # Audit #40: kategori wajib milik pemanggil (dulu id kategori orang
+    # lain diterima mentah-mentah di jalur ini).
+    _validate_category(db, user, body.kategori_id)
     sudah = (
         db.query(SavedQuiz)
         .filter(SavedQuiz.dibuat_oleh == user.id, SavedQuiz.asal_id == quiz.id)
@@ -466,6 +469,10 @@ def save_quiz_to_bank(
     saved = SavedQuiz(
         judul=quiz.judul,
         tipe=quiz.tipe,
+        # Audit #33: jenis & pasangan dokumen ikut tersimpan (dulu hilang,
+        # kuis Ujian kembali dari bank sebagai Kuis biasa).
+        jenis=quiz.jenis,
+        grup_dokumen=quiz.grup_dokumen,
         teks_mentah=quiz.teks_mentah,
         snapshot=snapshot,
         dibuat_oleh=user.id,
@@ -526,7 +533,14 @@ def _store_answers(db: Session, attempt: QuizAttempt, questions: list[Question],
     by_id = {q.id: q for q in questions}
     existing = _answers_map(db, attempt)
     for item in payload:
-        q = by_id.get(item.get("question_id"))
+        # Audit #41: payload tak bertipe — item/id bertipe aneh dulu bisa
+        # memicu 500 (AttributeError/ValueError). Lewati yang tak valid.
+        if not isinstance(item, dict):
+            continue
+        qid = item.get("question_id")
+        if not isinstance(qid, int) or isinstance(qid, bool):
+            continue
+        q = by_id.get(qid)
         if q is None:
             continue
         row = existing.get(q.id)
@@ -536,11 +550,24 @@ def _store_answers(db: Session, attempt: QuizAttempt, questions: list[Question],
             existing[q.id] = row
         if q.tipe == "pilihan_ganda":
             ids = item.get("option_ids") or []
+            if not isinstance(ids, list):
+                ids = []
             valid_ids = {o.id for o in q.options}
-            row.jawaban_teks = json.dumps([int(i) for i in ids if int(i) in valid_ids])
-            row.option_id = int(ids[0]) if len(ids) == 1 else None
+            bersih: list[int] = []
+            for i in ids:
+                if isinstance(i, bool):
+                    continue
+                try:
+                    iv = int(i)
+                except (TypeError, ValueError):
+                    continue
+                if iv in valid_ids and iv not in bersih:
+                    bersih.append(iv)
+            row.jawaban_teks = json.dumps(bersih)
+            row.option_id = bersih[0] if len(bersih) == 1 else None
         else:
-            row.jawaban_teks = item.get("jawaban_teks") or ""
+            teks = item.get("jawaban_teks")
+            row.jawaban_teks = teks if isinstance(teks, str) else ""
     db.flush()
 
 
@@ -1066,11 +1093,34 @@ def compose_quiz_from_bank_questions(
         }
         for r in drawn
     ]
+    # Audit #37: teks kanonis hasil susunan WAJIB parse kembali menjadi
+    # soal yang sama persis. Teks soal bank yang mengandung baris/tag
+    # penutup TCML bisa mengubah makna saat direpresentasikan — dulu lolos
+    # diam-diam dan kuis terbit dengan isi berbeda dari bank.
+    teks_kanonis = questions_to_tcml(body.tipe, data)
+    cek = parse_quiz_v2(teks_kanonis, expected_type=body.tipe)
+    if not cek["success"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Sebagian soal bank tidak bisa disusun menjadi kuis TCML yang valid (kemungkinan teksnya mengandung tag penutup TCML). Perbaiki teks soal di bank terlebih dahulu.",
+        )
+    hasil = cek["content"]["questions"]
+    sama = len(hasil) == len(data) and all(
+        h["pertanyaan"] == d["pertanyaan"]
+        and [o["teks"] for o in h["options"]] == [o["teks"] for o in d["options"]]
+        and (h["jawaban_referensi"] or None) == (d["jawaban_referensi"] or None)
+        for h, d in zip(hasil, data)
+    )
+    if not sama:
+        raise HTTPException(
+            status_code=400,
+            detail="Sebagian soal bank berubah makna saat disusun menjadi TCML (kemungkinan teksnya mengandung tag TCML). Perbaiki teks soal di bank terlebih dahulu.",
+        )
     quiz = Quiz(
         meeting_id=meeting.id,
         judul=body.judul.strip(),
         tipe=body.tipe,
-        teks_mentah=questions_to_tcml(body.tipe, data),
+        teks_mentah=teks_kanonis,
         dibuat_oleh=user.id,
         durasi_menit=body.durasi_menit,
         acak_soal=body.acak_soal,

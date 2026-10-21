@@ -31,8 +31,12 @@ KIND_QUIZ_TIPE = {"kuis_pg": "pilihan_ganda", "kuis_esai": "teks"}
 
 
 # ------------------------------------------------------------- modul & paket
-def sync_tag_modules(db: Session) -> dict[str, TagModule]:
-    """Samakan tabel tag_modules/tag_examples dengan registry kode (idempoten)."""
+def sync_tag_modules(db: Session, commit: bool = True) -> dict[str, TagModule]:
+    """Samakan tabel tag_modules/tag_examples dengan registry kode (idempoten).
+
+    Audit #28: pemanggil yang sedang di tengah transaksi (buat/ubah paket)
+    wajib memakai commit=False — commit di tengah handler membuat data
+    tersimpan SEBAGIAN walaupun validasi sesudahnya gagal (400)."""
     for slug, meta in MODULES.items():
         row = db.query(TagModule).filter(TagModule.slug == slug).first()
         if row is None:
@@ -52,7 +56,10 @@ def sync_tag_modules(db: Session) -> dict[str, TagModule]:
                     module_id=row.id, judul=ex["judul"], konten=ex["konten"], urutan=i
                 )
             )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return {m.slug: m for m in db.query(TagModule).all()}
 
 
@@ -97,23 +104,28 @@ def ensure_preset_packs(db: Session, user: User) -> None:
             )
         created = True
     # Paket "Kelas Lengkap" = SEMUA modul menurut definisinya: lengkapi
-    # modul baru (mis. cek-pemahaman) pada paket lama yang belum memuatnya.
+    # modul cek-pemahaman pada paket lama yang belum memuatnya — SEKALI
+    # saja (audit #35). Bendera topup_cek_v1 (migrasi 0008) memastikan
+    # modul yang SENGAJA dilepas guru sesudahnya tidak dibangkitkan lagi
+    # setiap membuka daftar paket.
     lengkap = (
         db.query(ParserPack)
         .filter(ParserPack.dibuat_oleh == user.id, ParserPack.nama == "Kelas Lengkap")
         .first()
     )
-    if lengkap is not None and "cek-pemahaman" in modules:
+    if lengkap is not None and not lengkap.topup_cek_v1:
         from .models import ParserPackModule
 
-        ada = {
-            pm.module_id
-            for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()
-        }
-        if modules["cek-pemahaman"].id not in ada:
-            urutan = max((pm.urutan for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()), default=-1) + 1
-            db.add(ParserPackModule(pack_id=lengkap.id, module_id=modules["cek-pemahaman"].id, urutan=urutan))
-            created = True
+        if "cek-pemahaman" in modules:
+            ada = {
+                pm.module_id
+                for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()
+            }
+            if modules["cek-pemahaman"].id not in ada:
+                urutan = max((pm.urutan for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()), default=-1) + 1
+                db.add(ParserPackModule(pack_id=lengkap.id, module_id=modules["cek-pemahaman"].id, urutan=urutan))
+        lengkap.topup_cek_v1 = True
+        created = True
     if created:
         db.commit()
 
@@ -291,40 +303,117 @@ _ROOT_CLOSE = re.compile(r"^\s*\[/(MATERIAL|EXERCISE|PROJECT|QUIZ)\]\s*$")
 _TAG_RE = re.compile(r"\[(/?)([A-Z][A-Z0-9_]*)(?:\s+(\d+))?\]")
 
 
+_ROOT_OPEN_ANY = re.compile(r"\[(MATERIAL|EXERCISE|PROJECT|QUIZ)\]")
+
+
 def split_documents(raw: str) -> list[str]:
     """Pecah keluaran AI menjadi dokumen per root block.
 
     Baris fence ``` dibuang; teks di luar root block diabaikan.
+    Audit #16: tag buka/tutup akar boleh SEBARIS dengan teks lain — dulu
+    penutup yang tidak sendirian sebaris membuat sisa dokumen hilang.
     """
     lines = [ln for ln in raw.splitlines() if not ln.strip().startswith("```")]
     docs: list[str] = []
     current: Optional[list[str]] = None
     root: Optional[str] = None
     for ln in lines:
-        opened = _ROOT_OPEN.match(ln)
-        if opened and current is None:
-            current = [ln]
-            root = opened.group(1)
-            continue
-        if current is not None:
-            current.append(ln)
-            closed = _ROOT_CLOSE.match(ln)
-            if closed and closed.group(1) == root:
-                docs.append("\n".join(current).strip())
-                current = None
-                root = None
+        sisa = ln
+        # Satu baris bisa menutup akar lama DAN membuka akar baru.
+        while True:
+            if current is None:
+                opened = _ROOT_OPEN_ANY.search(sisa)
+                if not opened:
+                    break
+                root = opened.group(1)
+                current = [sisa[opened.start():]]
+                sisa = ""
+                # Akar yang buka & tutup sebaris ditangani loop berikutnya.
+                if f"[/{root}]" not in current[0]:
+                    break
+                sisa = current[0]
+                current = []
+            penutup = f"[/{root}]"
+            idx = sisa.find(penutup)
+            if idx < 0:
+                if sisa:
+                    current.append(sisa)
+                break
+            current.append(sisa[: idx + len(penutup)])
+            docs.append("\n".join(current).strip())
+            current = None
+            sisa = sisa[idx + len(penutup):]
+            root = None
+            if not sisa.strip():
+                break
     return docs
 
 
 def extract_tags(teks: str) -> set[str]:
-    tags: set[str] = set()
-    for m in _TAG_RE.finditer(teks):
-        name = m.group(2)
-        if name == "QUESTION" and m.group(3):
-            tags.add("QUESTION_BLOCK")
-        else:
-            tags.add(name)
+    """Tag yang dipakai dokumen, dari POHON AST (audit #17).
+
+    Dulu regex atas teks mentah: tag contoh di dalam [CODE]/blok mentah
+    ikut terhitung (dokumen sah ditolak) — sekarang sub-pohon blok mentah
+    dilewati, sama seperti ekstraksi [CEK]. Bila AST gagal dibangun,
+    kembali ke regex (dokumennya toh gugur di lapis 1).
+    """
+    from .tcml.cek import RAW_BLOCK_TAGS
+    from .tcml.core import ASTBuilder, BlockNode, Tokenizer
+
+    tokens = Tokenizer(teks).tokenize()
+    ast, build_errors = ASTBuilder(tokens).build()
+    if build_errors:
+        tags: set[str] = set()
+        for m in _TAG_RE.finditer(teks):
+            name = m.group(2)
+            if name == "QUESTION" and m.group(3):
+                tags.add("QUESTION_BLOCK")
+            else:
+                tags.add(name)
+        return tags
+    tags = set()
+
+    def jalan(node, dalam_mentah: bool) -> None:
+        for child in node.children:
+            if not isinstance(child, BlockNode):
+                continue
+            if not dalam_mentah:
+                potong = child.tag.split(None, 1)
+                nama = potong[0]
+                if nama == "QUESTION" and len(potong) == 2:
+                    tags.add("QUESTION_BLOCK")
+                else:
+                    tags.add(nama)
+            jalan(child, dalam_mentah or child.tag in RAW_BLOCK_TAGS)
+
+    jalan(ast, False)
     return tags
+
+
+def _akar_bersarang(teks: str) -> list[str]:
+    """Nama akar dokumen yang muncul BERSARANG di dalam blok lain (audit
+    #17) — mis. [QUIZ] di dalam [MATERIAL] tidak pernah dirender sebagai
+    kuis dan harus ditolak, bukan lolos diam-diam. Isi blok mentah dikecualikan."""
+    from .tcml.cek import RAW_BLOCK_TAGS
+    from .tcml.core import ASTBuilder, BlockNode, Tokenizer
+
+    tokens = Tokenizer(teks).tokenize()
+    ast, build_errors = ASTBuilder(tokens).build()
+    if build_errors:
+        return []
+    ditemukan: list[str] = []
+
+    def jalan(node, kedalaman: int, dalam_mentah: bool) -> None:
+        for child in node.children:
+            if not isinstance(child, BlockNode):
+                continue
+            nama = child.tag.split(None, 1)[0]
+            if kedalaman > 0 and not dalam_mentah and nama in ROOT_BLOCKS and nama not in ditemukan:
+                ditemukan.append(nama)
+            jalan(child, kedalaman + 1, dalam_mentah or child.tag in RAW_BLOCK_TAGS)
+
+    jalan(ast, 0, False)
+    return ditemukan
 
 
 def _extract_title(teks: str) -> Optional[str]:
@@ -393,6 +482,15 @@ def validate_document(db: Session, pack: ParserPack, kind: str, teks: str) -> di
         errors.append(
             {"lapis": "skema", "message": f"Tag [{tag}] tidak termasuk modul paket ini."}
         )
+    # --- lapis 2c (audit #17): akar bersarang & [TITLE] wajib untuk materi
+    for nama in _akar_bersarang(teks):
+        errors.append(
+            {"lapis": "skema", "message": f"Akar [{nama}] bersarang di dalam blok lain — akar dokumen harus di tingkat teratas."}
+        )
+    if root in ("MATERIAL", "EXERCISE", "PROJECT") and "TITLE" not in extract_tags(teks):
+        errors.append(
+            {"lapis": "skema", "message": "Dokumen materi wajib memiliki [TITLE] (tag wajib pada modul materi)."}
+        )
 
     judul = _extract_title(teks)
     if not judul:
@@ -448,6 +546,10 @@ def validate_bundle_document(db: Session, pack: ParserPack, teks: str) -> dict:
     for tag in sorted(extract_tags(teks) - allowed):
         errors.append(
             {"lapis": "skema", "message": f"Tag [{tag}] tidak termasuk modul paket ini."}
+        )
+    for nama in _akar_bersarang(teks):
+        errors.append(
+            {"lapis": "skema", "message": f"Akar [{nama}] bersarang di dalam blok lain — akar dokumen harus di tingkat teratas."}
         )
 
     judul = _extract_title(parts["materi"] or "") or "Dokumen hasil generate"

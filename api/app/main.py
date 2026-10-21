@@ -3,11 +3,13 @@
 from enum import Enum
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import settings, validate_production
+from .deps import get_current_user
+from .models import User
 from .routers import (
     admin_users,
     ai_settings,
@@ -78,8 +80,14 @@ class ParseKind(str, Enum):
     quiz_esai = "quiz_esai"
 
 
+# Audit #26: endpoint parse dulu publik tanpa batas ukuran — permukaan
+# DoS CPU. Sekarang wajib login (semua pemakai sah adalah editor yang
+# sudah login) dan teks dibatasi 200 ribu karakter.
+MAX_TEKS_PARSE = 200_000
+
+
 class ParseRequest(BaseModel):
-    teks: str = Field(..., description="Teks mentah TCML (atau format legacy)")
+    teks: str = Field(..., max_length=MAX_TEKS_PARSE, description="Teks mentah TCML (atau format legacy)")
     jenis: ParseKind = ParseKind.material
 
 
@@ -116,7 +124,7 @@ def health_v1():
 
 
 @app.post("/api/v1/parse/content", response_model=ParseResponse)
-def parse_content(req: ParseRequest):
+def parse_content(req: ParseRequest, user: User = Depends(get_current_user)):
     """Validasi & parse teks TCML. Pengganti /api/parse_quiz_raw v1."""
     if req.jenis == ParseKind.material:
         res = parse_material(req.teks)
@@ -140,18 +148,18 @@ def parse_content(req: ParseRequest):
 
 
 @app.get("/api/v1/tcml/modules")
-def list_modules():
+def list_modules(user: User = Depends(get_current_user)):
     """Metadata modul tag TCML — fondasi menu Paket Parser (Fase 5)."""
     return MODULES
 
 
 class QuizParseRequest(BaseModel):
-    teks: str = Field(..., description="Teks mentah TCML kuis")
+    teks: str = Field(..., max_length=MAX_TEKS_PARSE, description="Teks mentah TCML kuis")
     tipe: str = Field(default="pilihan_ganda", pattern="^(pilihan_ganda|teks)$")
 
 
 @app.post("/api/v1/parse/quiz")
-def parse_quiz_endpoint(req: QuizParseRequest):
+def parse_quiz_endpoint(req: QuizParseRequest, user: User = Depends(get_current_user)):
     """Parse kuis TCML v2 (bobot & multi-jawaban) untuk pratinjau editor."""
     from .tcml.quiz import parse_quiz_v2
 
@@ -160,11 +168,11 @@ def parse_quiz_endpoint(req: QuizParseRequest):
 
 
 class StructureRequest(BaseModel):
-    teks: str = Field(..., description="Teks mentah TCML materi/latihan/proyek")
+    teks: str = Field(..., max_length=MAX_TEKS_PARSE, description="Teks mentah TCML materi/latihan/proyek")
 
 
 @app.post("/api/v1/parse/structure")
-def parse_structure_endpoint(req: StructureRequest):
+def parse_structure_endpoint(req: StructureRequest, user: User = Depends(get_current_user)):
     """Ubah dokumen TCML menjadi model blok untuk Mode Blok editor materi."""
     from .tcml.structure import document_to_blocks
 
