@@ -64,7 +64,7 @@ PRESET_PACKS = [
     ("Pemrograman", "Materi coding: kode, latihan praktik, dan proyek.", ["inti-materi", "formula-kode", "latihan", "proyek"]),
     ("Kuis Pilihan Ganda", "Khusus menyusun kuis PG berbobot & multi-jawaban.", ["kuis-pg"]),
     ("Kuis Esai", "Khusus menyusun kuis esai dengan jawaban referensi.", ["kuis-esai"]),
-    ("Kelas Lengkap", "Semua modul: materi, data, kode, latihan, proyek, dan kedua kuis.", ["inti-materi", "tabel-data", "formula-kode", "latihan", "proyek", "kuis-pg", "kuis-esai"]),
+    ("Kelas Lengkap", "Semua modul: materi, data, kode, latihan, proyek, cek pemahaman, dan kedua kuis.", ["inti-materi", "tabel-data", "formula-kode", "latihan", "proyek", "cek-pemahaman", "kuis-pg", "kuis-esai"]),
     ("Kursus Scratch", "Paket kelas coding Scratch: materi dengan sematan proyek & blok visual, latihan, tugas proyek (.sb3), dan kuis PG.", ["inti-materi", "scratch", "latihan", "proyek", "kuis-pg"]),
 ]
 
@@ -96,6 +96,24 @@ def ensure_preset_packs(db: Session, user: User) -> None:
                 ParserPackModule(pack_id=pack.id, module_id=modules[slug].id, urutan=i)
             )
         created = True
+    # Paket "Kelas Lengkap" = SEMUA modul menurut definisinya: lengkapi
+    # modul baru (mis. cek-pemahaman) pada paket lama yang belum memuatnya.
+    lengkap = (
+        db.query(ParserPack)
+        .filter(ParserPack.dibuat_oleh == user.id, ParserPack.nama == "Kelas Lengkap")
+        .first()
+    )
+    if lengkap is not None and "cek-pemahaman" in modules:
+        from .models import ParserPackModule
+
+        ada = {
+            pm.module_id
+            for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()
+        }
+        if modules["cek-pemahaman"].id not in ada:
+            urutan = max((pm.urutan for pm in db.query(ParserPackModule).filter(ParserPackModule.pack_id == lengkap.id).all()), default=-1) + 1
+            db.add(ParserPackModule(pack_id=lengkap.id, module_id=modules["cek-pemahaman"].id, urutan=urutan))
+            created = True
     if created:
         db.commit()
 

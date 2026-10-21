@@ -165,10 +165,65 @@ MODULES = {
             }
         ],
     },
+    "cek-pemahaman": {
+        "nama": "Cek Pemahaman (Soal Sisipan)",
+        "roots": [],
+        "tags": ["CEK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT", "TYPE"],
+        "deskripsi": (
+            "Soal latihan ringan DI DALAM materi: blok [CEK] berisi satu soal PG atau esai "
+            "yang diselipkan di antara bacaan untuk mengecek pemahaman. Dinilai otomatis (PG) "
+            "atau cek mandiri dengan referensi (esai), masuk nilai materi, boleh diulang, "
+            "TANPA timer/jendela — bukan untuk ujian (ujian memakai modul Kuis)."
+        ),
+        "spec": (
+            "Soal sisipan Cek Pemahaman ditulis dengan blok [CEK] di dalam root materi, "
+            "di antara blok bacaan, setelah bagian yang ingin dicek pemahamannya:\n"
+            "[CEK]\n"
+            "[QUESTION]Teks pertanyaan[/QUESTION]\n"
+            "[OPTIONS]\n"
+            "A. Pilihan A\n"
+            "B. Pilihan B\n"
+            "[/OPTIONS]\n"
+            "[ANSWER]B[/ANSWER]\n"
+            "[/CEK]\n"
+            "Untuk esai ganti isi blok menjadi: [TYPE]essay[/TYPE] lalu [QUESTION]...[/QUESTION] "
+            "lalu [ANSWER]Jawaban referensi untuk cek mandiri siswa[/ANSWER] (referensi WAJIB ada).\n"
+            "Aturan:\n"
+            "- Satu blok [CEK] = satu soal. Taruh setelah bagian penting, jangan menumpuk banyak soal berurutan.\n"
+            "- PG: [OPTIONS] minimal 2 pilihan berlabel huruf; [ANSWER] label yang benar (boleh lebih dari satu, pisah koma).\n"
+            "- [WEIGHT]2[/WEIGHT] opsional untuk bobot (default 1).\n"
+            "- Soal [CEK] adalah LATIHAN, bukan ujian: buat yang menguji pemahaman bagian tepat sebelumnya."
+        ),
+        "contoh": [
+            {
+                "judul": "Materi pecahan dengan cek pemahaman PG & esai",
+                "konten": (
+                    "[MATERIAL]\n"
+                    "[TITLE]Mengenal Pecahan[/TITLE]\n"
+                    "[PARAGRAPH]Pecahan menyatakan bagian dari keseluruhan. Angka di atas garis disebut pembilang, di bawah disebut penyebut.[/PARAGRAPH]\n"
+                    "[CEK]\n"
+                    "[QUESTION]Pada pecahan 3/4, angka 4 disebut...[/QUESTION]\n"
+                    "[OPTIONS]\n"
+                    "A. Pembilang\n"
+                    "B. Penyebut\n"
+                    "[/OPTIONS]\n"
+                    "[ANSWER]B[/ANSWER]\n"
+                    "[/CEK]\n"
+                    "[PARAGRAPH]Pecahan senilai adalah pecahan berbeda yang nilainya sama, misalnya 1/2 = 2/4.[/PARAGRAPH]\n"
+                    "[CEK]\n"
+                    "[TYPE]essay[/TYPE]\n"
+                    "[QUESTION]Jelaskan dengan bahasamu sendiri mengapa 1/2 sama nilainya dengan 2/4.[/QUESTION]\n"
+                    "[ANSWER]Karena pembilang dan penyebut 1/2 sama-sama dikali 2; nilai bagiannya tidak berubah.[/ANSWER]\n"
+                    "[/CEK]\n"
+                    "[/MATERIAL]"
+                ),
+            }
+        ],
+    },
     "kuis-pg": {
         "nama": "Kuis Pilihan Ganda",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "OPTIONS", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING"],
         "deskripsi": "Kuis pilihan ganda lengkap: opsi berlabel huruf, kunci jawaban (boleh lebih dari satu), dan bobot per soal.",
         "spec": (
             "Struktur kuis PG:\n"
@@ -188,7 +243,8 @@ MODULES = {
             "- Nomor soal pada [QUESTION n] dan [/QUESTION n] harus urut mulai 1.\n"
             "- Opsi minimal 2, label huruf kapital berurutan mulai A.\n"
             "- [ANSWER] berisi label jawaban benar; boleh lebih dari satu dipisah koma, mis. [ANSWER]B, C[/ANSWER] (siswa harus memilih persis himpunan itu).\n"
-            "- [WEIGHT]2[/WEIGHT] opsional di dalam blok soal untuk bobot (default 1, boleh desimal)."
+            "- [WEIGHT]2[/WEIGHT] opsional di dalam blok soal untuk bobot (default 1, boleh desimal).\n"
+            "- Blok PENGANTAR (opsional): paragraf bebas, [NOTE], [HINT], [EXAMPLE], atau [WARNING] boleh ditulis di dalam [QUIZ] sebelum soal pertama (prolog: sambutan, konteks, petunjuk pengerjaan) atau di antara soal sebagai selingan/hint. Blok pengantar BUKAN soal dan tidak dinilai."
         ),
         "contoh": [
             {
@@ -223,7 +279,7 @@ MODULES = {
     "kuis-esai": {
         "nama": "Kuis Esai",
         "roots": ["QUIZ"],
-        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER", "WEIGHT"],
+        "tags": ["TYPE", "QUESTION_BLOCK", "QUESTION", "ANSWER", "WEIGHT", "NOTE", "HINT", "EXAMPLE", "WARNING"],
         "deskripsi": "Kuis esai/teks: pertanyaan terbuka dengan jawaban referensi sebagai pedoman penilaian guru, plus bobot per soal.",
         "spec": (
             "Struktur kuis esai:\n"
@@ -235,7 +291,8 @@ MODULES = {
             "[WEIGHT]3[/WEIGHT]\n"
             "[/QUESTION 1]\n"
             "[/QUIZ]\n"
-            "Aturan: nomor soal urut mulai 1; [ANSWER] adalah referensi penilaian (bukan ditampilkan ke siswa); [WEIGHT] opsional (default 1)."
+            "Aturan: nomor soal urut mulai 1; [ANSWER] adalah referensi penilaian (bukan ditampilkan ke siswa); [WEIGHT] opsional (default 1).\n"
+            "Blok PENGANTAR (opsional): paragraf bebas, [NOTE], [HINT], [EXAMPLE], atau [WARNING] boleh ditulis di dalam [QUIZ] sebelum soal pertama (prolog: konteks bacaan, petunjuk) atau di antara soal sebagai selingan. Blok pengantar BUKAN soal dan tidak dinilai."
         ),
         "contoh": [
             {
@@ -301,6 +358,7 @@ _MODULE_ICONS = {
     "formula-kode": "🧮",
     "latihan": "✏️",
     "proyek": "🧩",
+    "cek-pemahaman": "🧠",
     "kuis-pg": "🧪",
     "kuis-esai": "📝",
     "scratch": "🐱",

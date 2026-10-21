@@ -17,13 +17,14 @@ from ..access import (
     get_material,
     get_meeting,
     get_subject,
+    is_enrolled,
     require_subject_manage,
     require_subject_view,
 )
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user, require_csrf
-from ..models import Material, MaterialFile, Meeting, SavedMaterial, User
+from ..models import CekAnswer, Enrollment, Material, MaterialFile, Meeting, SavedMaterial, User
 from ..tcml import parse_material
 
 router = APIRouter(tags=["materials"])
@@ -220,7 +221,176 @@ def get_one_material(
         ]
     else:
         out["dokumen_kuis"] = []
+    out["cek"] = _cek_payload(db, m, user)
     return out
+
+
+# ------------------------------------------------- Cek Pemahaman [CEK]
+def _daftar_cek(m: Material) -> list[dict]:
+    """Soal sisipan [CEK] materi ini (bentuk server, memuat kunci)."""
+    from ..tcml.cek import extract_ceks
+
+    ceks, errors = extract_ceks(m.teks_mentah or "")
+    return [] if errors else ceks
+
+
+def _skor_cek(ceks: list[dict], jawaban: dict[int, CekAnswer]) -> dict | None:
+    """Nilai materi dari Cek Pemahaman — hanya PG yang diskor."""
+    maks = sum(c["bobot"] for c in ceks if c["tipe"] == "pilihan_ganda")
+    if maks <= 0:
+        return None
+    diperoleh = sum((a.skor or 0) for a in jawaban.values() if a.tipe == "pilihan_ganda")
+    return {"diperoleh": diperoleh, "maksimal": maks, "persen": round(diperoleh / maks * 100, 1)}
+
+
+def _cek_payload(db: Session, m: Material, user: User) -> dict:
+    from ..tcml.cek import cek_untuk_siswa
+
+    ceks = _daftar_cek(m)
+    is_staff = user.role in ("guru", "admin")
+    daftar = []
+    for i, c in enumerate(ceks):
+        item = cek_untuk_siswa(c, i)
+        if is_staff:
+            if c["tipe"] == "pilihan_ganda":
+                item["kunci"] = [o["label"] for o in c["options"] if o["is_correct"]]
+            else:
+                item["jawaban_referensi"] = c["jawaban_referensi"]
+        daftar.append(item)
+    skor = None
+    if user.role == "siswa" and ceks:
+        rows = (
+            db.query(CekAnswer)
+            .filter(CekAnswer.material_id == m.id, CekAnswer.siswa_id == user.id)
+            .all()
+        )
+        jawaban = {a.cek_index: a for a in rows}
+        for item in daftar:
+            a = jawaban.get(item["indeks"])
+            item["jawabanku"] = (
+                {"jawaban": a.jawaban, "benar": a.benar} if a is not None else None
+            )
+            # Referensi esai hanya dibuka SETELAH siswa menjawab (keputusan user).
+            if a is not None and item["tipe"] == "teks":
+                item["jawaban_referensi"] = ceks[item["indeks"]]["jawaban_referensi"]
+        skor = _skor_cek(ceks, jawaban)
+    return {"daftar": daftar, "skor": skor}
+
+
+class CekJawabIn(BaseModel):
+    jawaban: str = Field(min_length=1, max_length=4000)
+
+
+@router.post(
+    "/api/v1/materials/{material_id}/cek/{cek_index}/jawab",
+    dependencies=[Depends(require_csrf)],
+)
+def jawab_cek(
+    material_id: int,
+    cek_index: int,
+    body: CekJawabIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Siswa menjawab satu soal Cek Pemahaman. Boleh diulang — jawaban
+    terakhir yang tersimpan & dinilai. PG dinilai seketika; esai membuka
+    jawaban referensi untuk cek mandiri setelah menjawab."""
+    if user.role != "siswa":
+        raise HTTPException(status_code=403, detail="Hanya siswa yang menjawab Cek Pemahaman.")
+    m = get_material(db, material_id)
+    subject, _ = _subject_of_material(db, m)
+    if not is_enrolled(db, user.id, subject.id):
+        raise HTTPException(status_code=403, detail="Kamu tidak terdaftar di kelas ini.")
+    ceks = _daftar_cek(m)
+    if cek_index < 0 or cek_index >= len(ceks):
+        raise HTTPException(status_code=404, detail="Soal Cek Pemahaman tidak ditemukan.")
+    cek = ceks[cek_index]
+    jawaban_teks = body.jawaban.strip()
+    if not jawaban_teks:
+        raise HTTPException(status_code=400, detail="Jawaban tidak boleh kosong.")
+
+    benar: bool | None = None
+    skor: float | None = None
+    if cek["tipe"] == "pilihan_ganda":
+        dipilih = {t.strip().upper() for t in jawaban_teks.replace(";", ",").split(",") if t.strip()}
+        kunci = {o["label"] for o in cek["options"] if o["is_correct"]}
+        label_valid = {o["label"] for o in cek["options"]}
+        if not dipilih or not dipilih.issubset(label_valid):
+            raise HTTPException(status_code=400, detail="Pilihan jawaban tidak valid.")
+        benar = dipilih == kunci
+        skor = cek["bobot"] if benar else 0.0
+        jawaban_simpan = ", ".join(sorted(dipilih))
+    else:
+        jawaban_simpan = jawaban_teks
+
+    row = (
+        db.query(CekAnswer)
+        .filter(
+            CekAnswer.material_id == m.id,
+            CekAnswer.siswa_id == user.id,
+            CekAnswer.cek_index == cek_index,
+        )
+        .first()
+    )
+    if row is None:
+        row = CekAnswer(material_id=m.id, siswa_id=user.id, cek_index=cek_index, tipe=cek["tipe"])
+        db.add(row)
+    row.jawaban = jawaban_simpan
+    row.benar = benar
+    row.skor = skor
+    db.commit()
+
+    rows = (
+        db.query(CekAnswer)
+        .filter(CekAnswer.material_id == m.id, CekAnswer.siswa_id == user.id)
+        .all()
+    )
+    hasil: dict = {"benar": benar, "skor": _skor_cek(ceks, {a.cek_index: a for a in rows})}
+    if cek["tipe"] == "pilihan_ganda":
+        hasil["kunci"] = [o["label"] for o in cek["options"] if o["is_correct"]]
+        hasil["penjelasan_kunci"] = [
+            {"label": o["label"], "teks": o["teks"]} for o in cek["options"] if o["is_correct"]
+        ]
+    else:
+        # Referensi esai HANYA dibuka setelah siswa menjawab (keputusan user).
+        hasil["jawaban_referensi"] = cek["jawaban_referensi"]
+    return hasil
+
+
+@router.get("/api/v1/materials/{material_id}/cek/hasil")
+def hasil_cek(
+    material_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ringkasan Cek Pemahaman per siswa untuk guru/admin kelas ini."""
+    m = get_material(db, material_id)
+    subject, _ = _subject_of_material(db, m)
+    require_subject_manage(db, user, subject)
+    ceks = _daftar_cek(m)
+    enrollments = (
+        db.query(Enrollment).filter(Enrollment.subject_id == subject.id).all()
+    )
+    rows = db.query(CekAnswer).filter(CekAnswer.material_id == m.id).all()
+    per_siswa: dict[int, dict[int, CekAnswer]] = {}
+    for a in rows:
+        per_siswa.setdefault(a.siswa_id, {})[a.cek_index] = a
+    hasil = []
+    for e in enrollments:
+        siswa = db.get(User, e.student_id)
+        jawaban = per_siswa.get(e.student_id, {})
+        skor = _skor_cek(ceks, jawaban)
+        hasil.append(
+            {
+                "siswa_id": e.student_id,
+                "nama": (siswa.nama_lengkap or siswa.username) if siswa else "?",
+                "terjawab": len(jawaban),
+                "total": len(ceks),
+                "skor_persen": skor["persen"] if skor else None,
+            }
+        )
+    hasil.sort(key=lambda r: r["nama"].lower())
+    return {"total_cek": len(ceks), "siswa": hasil}
 
 
 @router.patch("/api/v1/materials/{material_id}", dependencies=[Depends(require_csrf)])

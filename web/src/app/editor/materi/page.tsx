@@ -21,7 +21,8 @@ type JenisBlok =
   | "judul" | "heading" | "paragraf" | "catatan" | "peringatan" | "ringkasan"
   | "contoh" | "tujuan" | "deskripsi" | "luaran" | "petunjuk" | "harapan"
   | "rumus" | "kode" | "blok-scratch" | "scratch"
-  | "langkah" | "tugas" | "syarat" | "rubrik" | "tabel" | "sprite";
+  | "langkah" | "tugas" | "syarat" | "rubrik" | "tabel" | "sprite"
+  | "cek-pg" | "cek-esai";
 
 interface Blok {
   id: number;
@@ -31,6 +32,10 @@ interface Blok {
   baris?: string[][];
   nama?: string;
   deskripsi?: string;
+  pertanyaan?: string;
+  opsi?: { teks: string; benar: boolean }[];
+  referensi?: string;
+  bobot?: string;
 }
 
 const BLOK_META: Record<JenisBlok, { label: string; ikon: string }> = {
@@ -56,21 +61,23 @@ const BLOK_META: Record<JenisBlok, { label: string; ikon: string }> = {
   rubrik: { label: "Rubrik Penilaian", ikon: "📊" },
   tabel: { label: "Tabel Data", ikon: "📋" },
   sprite: { label: "Kartu Sprite", ikon: "👾" },
+  "cek-pg": { label: "Cek Pemahaman — Pilihan Ganda", ikon: "🧠" },
+  "cek-esai": { label: "Cek Pemahaman — Esai", ikon: "🧠" },
 };
 
 const BLOK_PER_ROOT: Record<RootJenis, JenisBlok[]> = {
   MATERIAL: [
     "judul", "heading", "paragraf", "catatan", "peringatan", "ringkasan",
     "contoh", "tujuan", "langkah", "tabel", "rumus", "kode",
-    "scratch", "sprite", "blok-scratch",
+    "scratch", "sprite", "blok-scratch", "cek-pg", "cek-esai",
   ],
   EXERCISE: [
     "judul", "heading", "paragraf", "catatan", "peringatan",
-    "tugas", "langkah", "petunjuk", "harapan",
+    "tugas", "langkah", "petunjuk", "harapan", "cek-pg", "cek-esai",
   ],
   PROJECT: [
     "judul", "deskripsi", "paragraf", "catatan", "syarat", "luaran",
-    "rubrik", "langkah", "scratch", "sprite", "blok-scratch",
+    "rubrik", "langkah", "scratch", "sprite", "blok-scratch", "cek-pg", "cek-esai",
   ],
 };
 
@@ -91,6 +98,16 @@ const LABEL_ITEM: Partial<Record<JenisBlok, string>> = {
 };
 
 function susunBlok(b: Blok): string {
+  if (b.jenis === "cek-pg") {
+    const opsi = (b.opsi ?? []).map((o, i) => `${String.fromCharCode(65 + i)}. ${o.teks}`).join("\n");
+    const kunci = (b.opsi ?? []).map((o, i) => (o.benar ? String.fromCharCode(65 + i) : "")).filter(Boolean).join(", ");
+    const bobot = b.bobot && b.bobot !== "1" ? `\n[WEIGHT]${b.bobot}[/WEIGHT]` : "";
+    return `[CEK]\n[QUESTION]${(b.pertanyaan ?? "").trim()}[/QUESTION]\n[OPTIONS]\n${opsi}\n[/OPTIONS]\n[ANSWER]${kunci}[/ANSWER]${bobot}\n[/CEK]`;
+  }
+  if (b.jenis === "cek-esai") {
+    const bobot = b.bobot && b.bobot !== "1" ? `\n[WEIGHT]${b.bobot}[/WEIGHT]` : "";
+    return `[CEK]\n[TYPE]essay[/TYPE]\n[QUESTION]${(b.pertanyaan ?? "").trim()}[/QUESTION]\n[ANSWER]${(b.referensi ?? "").trim()}[/ANSWER]${bobot}\n[/CEK]`;
+  }
   if (b.jenis === "tabel") {
     const isi = (b.baris ?? []).map((r) => r.join(" | ")).join("\n");
     return `[DATASET]\n[TABLE]\n${isi}\n[/TABLE]\n[/DATASET]`;
@@ -126,6 +143,10 @@ function blokBaru(jenis: JenisBlok, id: number): Blok {
       return { id, jenis, baris: [["Kolom 1", "Kolom 2"], ["", ""]] };
     case "sprite":
       return { id, jenis, nama: "", deskripsi: "" };
+    case "cek-pg":
+      return { id, jenis, pertanyaan: "", opsi: [{ teks: "", benar: true }, { teks: "", benar: false }], bobot: "1" };
+    case "cek-esai":
+      return { id, jenis, pertanyaan: "", referensi: "", bobot: "1" };
     default:
       return { id, jenis, teks: "" };
   }
@@ -207,6 +228,8 @@ const SISIPAN: { label: string; teks: string; tandai: string }[] = [
   { label: "Syarat Proyek", teks: "[REQUIREMENTS]\n[REQUIREMENT]Syarat pertama[/REQUIREMENT]\n[/REQUIREMENTS]", tandai: "Syarat pertama" },
   { label: "Luaran", teks: "[OUTPUT]Luaran yang dikumpulkan[/OUTPUT]", tandai: "Luaran yang dikumpulkan" },
   { label: "Rubrik", teks: "[RUBRIC]\n[CRITERIA]Kriteria — 50 poin[/CRITERIA]\n[/RUBRIC]", tandai: "Kriteria" },
+  { label: "Cek Pemahaman PG", teks: "[CEK]\n[QUESTION]Pertanyaannya?[/QUESTION]\n[OPTIONS]\nA. Pilihan A\nB. Pilihan B\n[/OPTIONS]\n[ANSWER]A[/ANSWER]\n[/CEK]", tandai: "Pertanyaannya?" },
+  { label: "Cek Pemahaman Esai", teks: "[CEK]\n[TYPE]essay[/TYPE]\n[QUESTION]Pertanyaannya?[/QUESTION]\n[ANSWER]Jawaban referensinya.[/ANSWER]\n[/CEK]", tandai: "Pertanyaannya?" },
   { label: "Tabel", teks: "[DATASET]\n[TABLE]\nKolom 1 | Kolom 2\nIsi 1 | Isi 2\n[/TABLE]\n[/DATASET]", tandai: "Kolom 1" },
   { label: "Rumus", teks: "[FORMULA]\nrumus di sini\n[/FORMULA]", tandai: "rumus di sini" },
   { label: "Kode", teks: "[CODE]\nkode di sini\n[/CODE]", tandai: "kode di sini" },
@@ -336,7 +359,7 @@ function EditorInner() {
           body: { teks: teksStr },
         });
         if (r.success && r.bisa_formulir && r.root) {
-          setBlocks(r.blocks.map((b) => ({ ...b, id: idBerikut.current++ })));
+          setBlocks(r.blocks.map((b) => ({ ...b, bobot: b.bobot != null ? String(b.bobot) : undefined, id: idBerikut.current++ })));
           setRootJenis(r.root);
           setEditorMode("blok");
           setModeNotice("");
@@ -876,6 +899,9 @@ function EditorInner() {
                     </button>
                   ))}
               </div>
+              <p className="muted" style={{ marginTop: 8 }}>
+                🧠 <strong>Cek Pemahaman</strong> = soal latihan sisipan di tengah bacaan (otomatis dinilai, masuk nilai materi). Kuis/ujian berwaktu dibuat sebagai dokumen terpisah lewat jenis dokumen.
+              </p>
             </>
           ) : (
             <>
@@ -976,6 +1002,74 @@ function BlokIsi({ blok, onChange }: { blok: Blok; onChange: (patch: Partial<Blo
         <button className="btn btn-sm" onClick={() => onChange({ items: [...items, ""] })}>
           ➕ {LABEL_ITEM[j]}
         </button>
+      </div>
+    );
+  }
+  if (j === "cek-pg" || j === "cek-esai") {
+    const opsi = blok.opsi ?? [];
+    return (
+      <div>
+        <p className="muted" style={{ marginBottom: 8 }}>
+          🧠 Soal latihan di tengah materi — {j === "cek-pg" ? "dinilai otomatis" : "dicek mandiri siswa dengan referensi"}, masuk nilai materi, boleh diulang, tanpa batas waktu. Untuk ujian berwaktu, buat dokumen jenis Kuis/Ujian.
+        </p>
+        <label className="label">Pertanyaan</label>
+        <textarea
+          className="textarea"
+          rows={2}
+          value={blok.pertanyaan ?? ""}
+          onChange={(e) => onChange({ pertanyaan: e.target.value })}
+          placeholder="Tulis pertanyaan cek pemahaman..."
+        />
+        {j === "cek-pg" ? (
+          <>
+            <label className="label">Pilihan jawaban — centang yang benar (boleh lebih dari satu)</label>
+            {opsi.map((o, i) => (
+              <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                <strong style={{ minWidth: 18 }}>{String.fromCharCode(65 + i)}.</strong>
+                <input type="checkbox" checked={o.benar} onChange={(e) => {
+                  const next = [...opsi];
+                  next[i] = { ...next[i], benar: e.target.checked };
+                  onChange({ opsi: next });
+                }} />
+                <input
+                  className="input"
+                  value={o.teks}
+                  placeholder={`Teks pilihan ${String.fromCharCode(65 + i)}`}
+                  onChange={(e) => {
+                    const next = [...opsi];
+                    next[i] = { ...next[i], teks: e.target.value };
+                    onChange({ opsi: next });
+                  }}
+                />
+                <button className="btn btn-sm" disabled={opsi.length <= 2} onClick={() => onChange({ opsi: opsi.filter((_, x) => x !== i) })} title="Hapus pilihan">✕</button>
+              </div>
+            ))}
+            {opsi.length < 5 && (
+              <button className="btn btn-sm" onClick={() => onChange({ opsi: [...opsi, { teks: "", benar: false }] })}>➕ Pilihan</button>
+            )}
+          </>
+        ) : (
+          <>
+            <label className="label">Jawaban referensi — dibuka siswa SETELAH menjawab, untuk cek mandiri</label>
+            <textarea
+              className="textarea"
+              rows={2}
+              value={blok.referensi ?? ""}
+              onChange={(e) => onChange({ referensi: e.target.value })}
+              placeholder="Jawaban yang benar / poin-poin pentingnya..."
+            />
+          </>
+        )}
+        <label className="label">Bobot (untuk nilai materi)</label>
+        <input
+          className="input"
+          style={{ maxWidth: 110 }}
+          type="number"
+          min="0.5"
+          step="0.5"
+          value={blok.bobot ?? "1"}
+          onChange={(e) => onChange({ bobot: e.target.value })}
+        />
       </div>
     );
   }

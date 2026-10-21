@@ -275,6 +275,20 @@ class ExtendedMaterialRenderer(MaterialRenderer):
             return '\n'.join(html_parts)
 
         if isinstance(node, BlockNode):
+            if node.tag == 'CEK':
+                # Soal sisipan "Cek Pemahaman": divalidasi di sini (error
+                # menggagalkan simpan materi), dirender sebagai placeholder
+                # TANPA kunci — panel interaktifnya diisi frontend dari
+                # payload API, pengecekan jawaban selalu di server.
+                from .cek import parse_cek_node
+
+                idx = getattr(self, "_cek_counter", 0)
+                self._cek_counter = idx + 1
+                parse_cek_node(node, self.errors)
+                return (
+                    f'<div class="tc-cek" data-cek-index="{idx}">'
+                    f'<p class="tc-cek-placeholder">🧠 Cek Pemahaman {idx + 1}</p></div>'
+                )
             inner_html = ""
             for child in node.children:
                 inner_html += self._render_node(child)

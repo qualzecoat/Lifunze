@@ -77,7 +77,7 @@ def test_tabel_renders_multi_kolom():
 def test_modules_endpoint_memuat_tags_meta(client):
     _guru(client)
     mods = client.get("/api/v1/packs/modules").json()
-    assert len(mods) == 8
+    assert len(mods) == 9  # + modul cek-pemahaman
     inti = next(m for m in mods if m["slug"] == "inti-materi")
     assert inti["ikon"]
     title = next(t for t in inti["tags_meta"] if t["tag"] == "TITLE")

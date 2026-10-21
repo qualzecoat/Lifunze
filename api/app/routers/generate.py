@@ -34,6 +34,7 @@ from ..models import (
 from ..paket import (
     build_system_prompt,
     can_access_pack,
+    pack_module_rows,
     split_documents,
     validate_bundle_document,
     validate_document,
@@ -93,20 +94,51 @@ def _resolve_setting(db: Session, user: User, setting_id: Optional[int]) -> AiSe
     return s
 
 
-def _brief_to_user_prompt(kind: str, brief: dict) -> str:
+def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None) -> str:
     topik = (brief.get("topik") or "").strip()
     instruksi = (brief.get("instruksi") or "").strip()
+    punya_cek = bool(slugs and "cek-pemahaman" in slugs)
     if kind == "materi":
         target = "satu dokumen materi belajar (root [MATERIAL], boleh juga [EXERCISE]/[PROJECT] bila diminta)"
     elif kind == "kuis_pg":
         target = "satu dokumen kuis pilihan ganda (root [QUIZ], [TYPE]pilihan_ganda[/TYPE])"
     elif kind == "dokumen":
-        target = (
-            "satu DOKUMEN TERPADU dalam satu keluaran: bagian materi belajar (root [MATERIAL]) "
-            "diikuti bagian kuis yang menguji materi tersebut — kuis pilihan ganda (root [QUIZ], "
-            "[TYPE]pilihan_ganda[/TYPE]) dan/atau kuis esai (root [QUIZ], [TYPE]essay[/TYPE]) "
-            "sesuai modul paket yang tersedia"
-        )
+        # Bentuk keluaran mengikuti JENIS dokumen yang dipilih guru:
+        # materi biasa = campuran bacaan + soal sisipan; kuis/ujian =
+        # kuis betulan berprolog; tugas = dokumen praktik/proyek.
+        jenis_dok = (brief.get("jenis_dokumen") or "materi").strip()
+        if jenis_dok == "tugas":
+            target = (
+                "satu DOKUMEN TUGAS: dokumen praktik/proyek (root [EXERCISE] atau [PROJECT]) "
+                "berisi penjelasan singkat, daftar tugas/langkah yang harus dikerjakan siswa, "
+                "dan hasil yang diharapkan"
+            )
+            if punya_cek:
+                target += "; selipkan 1-2 soal [CEK] Cek Pemahaman bila ada konsep yang perlu dicek sebelum praktik"
+        elif jenis_dok in ("kuis", "ujian"):
+            nama = "UJIAN" if jenis_dok == "ujian" else "KUIS"
+            target = (
+                f"satu DOKUMEN {nama} betulan: root [QUIZ] yang diawali blok pengantar "
+                "(paragraf sambutan/konteks dan [NOTE] petunjuk pengerjaan"
+                + (", [WARNING] aturan ujian" if jenis_dok == "ujian" else "")
+                + ") lalu soal-soalnya; boleh didahului satu root [MATERIAL] bacaan "
+                "pendamping singkat bila materinya memang perlu dibaca dulu"
+            )
+            if jenis_dok == "kuis":
+                target += ". [HINT] boleh diselipkan di antara soal sebagai petunjuk"
+            else:
+                target += ". JANGAN menyelipkan [HINT] di antara soal (ini ujian)"
+        else:
+            target = (
+                "satu DOKUMEN MATERI campuran: bacaan (root [MATERIAL], boleh diselingi "
+                "[EXERCISE] bila topiknya praktik) yang mengalir utuh"
+            )
+            if punya_cek:
+                target += (
+                    ", dengan soal sisipan [CEK] Cek Pemahaman diselipkan tepat setelah "
+                    "bagian penting yang ingin dicek pemahamannya (1 soal per bagian, "
+                    "jangan menumpuk di akhir)"
+                )
     else:
         target = "satu dokumen kuis esai (root [QUIZ], [TYPE]essay[/TYPE])"
     lines = [f"Buatkan {target} tentang: {topik}."]
@@ -136,7 +168,8 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
     setting = _resolve_setting(db, user, body.ai_setting_id)
 
     system_prompt = build_system_prompt(db, pack, body.kind)
-    user_prompt = _brief_to_user_prompt(body.kind, body.brief)
+    slugs = [m.slug for m in pack_module_rows(db, pack)]
+    user_prompt = _brief_to_user_prompt(body.kind, body.brief, slugs)
     job = GenerationJob(
         user_id=user.id,
         pack_id=pack.id,

@@ -171,6 +171,34 @@ def _apply_settings(quiz: Quiz, body: QuizIn) -> None:
     quiz.tampilkan_kunci = body.tampilkan_kunci
 
 
+def _konten_kuis(quiz: Quiz, questions_db: list | None = None) -> list[dict]:
+    """Urutan tampil kuis: blok konten (prolog/hint/catatan) terseling soal.
+
+    Dihitung dari teks mentah. Soal dirujuk lewat indeks urutan parse —
+    atau lewat id baris questions bila `questions_db` diberikan (dipakai
+    tampilan attempt yang urutan soalnya bisa diacak). Kuis format
+    legacy / teks tidak valid -> daftar kosong (tampil seperti biasa).
+    """
+    try:
+        res = parse_quiz_v2(quiz.teks_mentah or "", expected_type=quiz.tipe)
+    except Exception:
+        return []
+    if not res["success"] or not res["content"]:
+        return []
+    out: list[dict] = []
+    nomor = 0
+    for it in res["content"].get("items") or []:
+        if it.get("jenis") == "konten":
+            out.append({"jenis": "konten", "tipe": it["tipe"], "teks": it["teks"]})
+        else:
+            if questions_db is not None and nomor < len(questions_db):
+                out.append({"jenis": "soal", "question_id": questions_db[nomor].id})
+            else:
+                out.append({"jenis": "soal", "indeks": nomor})
+            nomor += 1
+    return out
+
+
 def _quiz_full_out(db: Session, quiz: Quiz) -> dict:
     dokumen_materi_id = None
     if quiz.grup_dokumen:
@@ -192,6 +220,7 @@ def _quiz_full_out(db: Session, quiz: Quiz) -> dict:
         "dokumen_materi_id": dokumen_materi_id,
         **quiz_settings_out(quiz),
         "questions": [question_full_out(q) for q in _questions_of(db, quiz)],
+        "konten": _konten_kuis(quiz),
     }
 
 
@@ -305,6 +334,7 @@ def get_one_quiz(
         "total_bobot": sum(q.bobot for q in questions),
         "bisa_mulai": alasan is None,
         "alasan": alasan,
+        "konten": _konten_kuis(quiz),
         "attempt_saya": (
             {
                 "id": my_attempt.id,
@@ -550,6 +580,7 @@ def attempt_view(db: Session, attempt: QuizAttempt, quiz: Quiz, viewer: User) ->
         },
         "quiz": {"id": quiz.id, "judul": quiz.judul, "tipe": quiz.tipe, **quiz_settings_out(quiz)},
         "questions": out_questions,
+        "konten": _konten_kuis(quiz, _questions_of(db, quiz)),
     }
 
 

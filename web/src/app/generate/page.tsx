@@ -50,6 +50,7 @@ export default function GeneratePage() {
   const [busy, setBusy] = useState(false);
   // form
   const [kind, setKind] = useState<"materi" | "kuis_pg" | "kuis_esai" | "dokumen">("materi");
+  const [jenisDokumen, setJenisDokumen] = useState<"materi" | "tugas" | "kuis" | "ujian">("materi");
   const [packId, setPackId] = useState("");
   const [settingId, setSettingId] = useState("");
   const [topik, setTopik] = useState("");
@@ -143,6 +144,7 @@ export default function GeneratePage() {
             jenjang: jenjang || undefined,
             instruksi: instruksi || undefined,
             jumlah_soal: kind !== "materi" ? Number(jumlahSoal) || undefined : undefined,
+            jenis_dokumen: kind === "dokumen" ? jenisDokumen : undefined,
           },
         },
       });
@@ -312,6 +314,23 @@ export default function GeneratePage() {
             <div>
               <label className="label">Jumlah soal</label>
               <input className="input" type="number" min={1} max={30} value={jumlahSoal} onChange={(e) => setJumlahSoal(e.target.value)} />
+            </div>
+          )}
+          {kind === "dokumen" && (
+            <div>
+              <label className="label">Jenis dokumen</label>
+              <select className="select" value={jenisDokumen} onChange={(e) => setJenisDokumen(e.target.value as typeof jenisDokumen)}>
+                <option value="materi">📖 Materi Biasa (bacaan + cek pemahaman)</option>
+                <option value="tugas">📝 Tugas</option>
+                <option value="kuis">🧪 Kuis</option>
+                <option value="ujian">🏆 Ujian</option>
+              </select>
+              <p className="muted" style={{ marginTop: 4 }}>
+                {jenisDokumen === "materi" && "AI menulis bacaan yang mengalir, diselipi soal 🧠 Cek Pemahaman di tengahnya."}
+                {jenisDokumen === "tugas" && "AI menulis dokumen tugas/latihan — tanpa kuis berwaktu."}
+                {jenisDokumen === "kuis" && "AI menulis kuis betulan: ada pengantar/hint di dalam kuis, dikerjakan lewat tombol Mulai."}
+                {jenisDokumen === "ujian" && "AI menulis ujian: ada aturan di pengantar, tanpa hint di tengah soal."}
+              </p>
             </div>
           )}
         </div>

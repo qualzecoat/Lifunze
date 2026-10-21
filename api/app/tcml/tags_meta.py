@@ -24,6 +24,10 @@ SPEC_INTRO = {
         "Struktur kuis esai: dokumen diawali [QUIZ] dan diakhiri [/QUIZ]. "
         "Tag-tag berikut yang dipilih menyusun isi kuis:"
     ),
+    "cek-pemahaman": (
+        "Blok soal sisipan berikut bisa dipakai DI DALAM [MATERIAL]/[EXERCISE]/[PROJECT], "
+        "di antara blok bacaan, untuk mengecek pemahaman (latihan ringan, bukan ujian):"
+    ),
     "scratch": "Modul Scratch dipakai di dalam [MATERIAL]:",
 }
 
@@ -50,6 +54,35 @@ _QUIZ_ESAI_BOBOT = (
     "[QUESTION 1]\n[QUESTION]Mengapa kita harus menghemat air? Jelaskan dengan contoh.[/QUESTION]\n"
     "[ANSWER]Air bersih terbatas; menghematnya menjaga ketersediaan untuk minum, mandi, dan pertanian.[/ANSWER]\n"
     "[WEIGHT]3[/WEIGHT]\n[/QUESTION 1]\n[/QUIZ]"
+)
+_CEK_PG = (
+    "[MATERIAL]\n[TITLE]Mengenal Pecahan[/TITLE]\n"
+    "[PARAGRAPH]Angka di atas garis pecahan disebut pembilang, di bawah disebut penyebut.[/PARAGRAPH]\n"
+    "[CEK]\n[QUESTION]Pada pecahan 3/4, angka 4 disebut...[/QUESTION]\n"
+    "[OPTIONS]\nA. Pembilang\nB. Penyebut\n[/OPTIONS]\n[ANSWER]B[/ANSWER]\n[WEIGHT]2[/WEIGHT]\n[/CEK]\n[/MATERIAL]"
+)
+_CEK_ESAI = (
+    "[MATERIAL]\n[TITLE]Mengenal Pecahan[/TITLE]\n"
+    "[PARAGRAPH]Pecahan senilai adalah pecahan berbeda yang nilainya sama, misalnya 1/2 = 2/4.[/PARAGRAPH]\n"
+    "[CEK]\n[TYPE]essay[/TYPE]\n[QUESTION]Jelaskan mengapa 1/2 sama nilainya dengan 2/4.[/QUESTION]\n"
+    "[ANSWER]Karena pembilang dan penyebut 1/2 sama-sama dikali 2; nilai bagiannya tidak berubah.[/ANSWER]\n[/CEK]\n[/MATERIAL]"
+)
+_QUIZ_PG_PROLOG = (
+    "[QUIZ]\n[TYPE]pilihan_ganda[/TYPE]\n"
+    "Kuis ini menguji pemahamanmu tentang pecahan. Kerjakan dengan tenang.\n"
+    "[NOTE]Setiap soal bernilai sama. Tidak ada pengurangan nilai untuk jawaban salah.[/NOTE]\n"
+    "[QUESTION 1]\n[QUESTION]Pada pecahan 3/4, angka 3 disebut...[/QUESTION]\n"
+    "[OPTIONS]\nA. Pembilang\nB. Penyebut\n[/OPTIONS]\n[ANSWER]A[/ANSWER]\n[/QUESTION 1]\n"
+    "[HINT]Ingat: pembilang ada di atas garis.[/HINT]\n"
+    "[QUESTION 2]\n[QUESTION]Pecahan yang senilai dengan 1/2 adalah...[/QUESTION]\n"
+    "[OPTIONS]\nA. 2/4\nB. 1/3\n[/OPTIONS]\n[ANSWER]A[/ANSWER]\n[/QUESTION 2]\n[/QUIZ]"
+)
+_QUIZ_ESAI_PROLOG = (
+    "[QUIZ]\n[TYPE]essay[/TYPE]\n"
+    "[NOTE]Jawablah dengan kalimatmu sendiri. Nilai berdasarkan ketepatan penjelasan.[/NOTE]\n"
+    "[QUESTION 1]\n[QUESTION]Jelaskan proses fotosintesis dengan bahasamu sendiri.[/QUESTION]\n"
+    "[ANSWER]Tumbuhan mengubah cahaya matahari, air, dan CO2 menjadi glukosa dan oksigen.[/ANSWER]\n"
+    "[/QUESTION 1]\n[/QUIZ]"
 )
 _EXERCISE_FULL = (
     "[EXERCISE]\n[TITLE]Latihan Membuat Tabel[/TITLE]\n"
@@ -304,3 +337,67 @@ TAGS_META.update({
         },
     },
 })
+
+# --- Modul Cek Pemahaman (soal sisipan [CEK]) + blok pengantar kuis ---
+TAGS_META["cek-pemahaman"] = {
+    "CEK": {
+        "nama": "Blok Cek Pemahaman", "desc": "Satu soal latihan PG/esai yang diselipkan di dalam materi.",
+        "spec": "- [CEK] ... [/CEK]: satu soal sisipan di dalam materi, berisi [QUESTION] + [OPTIONS] + [ANSWER] (PG) atau [TYPE]essay + [QUESTION] + [ANSWER] referensi (esai).",
+        "jenis": "material", "contoh": _CEK_PG,
+    },
+    "QUESTION": {
+        "nama": "Pertanyaan Cek", "desc": "Teks pertanyaan soal sisipannya.",
+        "spec": "- [QUESTION]Teks pertanyaan[/QUESTION] di dalam [CEK]",
+        "jenis": "material", "contoh": _CEK_PG,
+    },
+    "OPTIONS": {
+        "nama": "Pilihan Jawaban Cek", "desc": "Pilihan A, B, C, … untuk soal sisipan PG.",
+        "spec": "- [OPTIONS] satu pilihan per baris, label huruf kapital berurutan mulai A; minimal 2 opsi. [/OPTIONS] di dalam [CEK]",
+        "jenis": "material", "contoh": _CEK_PG,
+    },
+    "ANSWER": {
+        "nama": "Kunci / Referensi Cek", "desc": "PG: label jawaban benar. Esai: jawaban referensi cek mandiri.",
+        "spec": "- [ANSWER] di dalam [CEK]: untuk PG berisi label benar (boleh lebih dari satu, pisah koma); untuk esai berisi jawaban referensi yang dibuka siswa setelah menjawab.",
+        "jenis": "material", "contoh": _CEK_PG,
+    },
+    "WEIGHT": {
+        "nama": "Bobot Cek", "desc": "Bobot soal sisipan dalam nilai materi (boleh desimal).",
+        "spec": "- [WEIGHT]2[/WEIGHT] opsional di dalam [CEK] untuk bobot (default 1, boleh desimal).",
+        "jenis": "material", "contoh": _CEK_PG,
+    },
+    "TYPE": {
+        "nama": "Penanda Esai Cek", "desc": "Menandai soal sisipan ini esai (cek mandiri).",
+        "spec": "- [TYPE]essay[/TYPE] di dalam [CEK] bila soalnya esai; tanpa [TYPE] dan tanpa [OPTIONS], soal juga dianggap esai.",
+        "jenis": "material", "contoh": _CEK_ESAI,
+    },
+}
+
+_PENGANTAR_PG = {
+    "NOTE": {
+        "nama": "Catatan Pengantar Kuis", "desc": "Kotak info di dalam kuis: prolog, aturan, atau pengingat.",
+        "spec": "- [NOTE]Catatan pengantar kuis.[/NOTE] di dalam [QUIZ], sebelum soal pertama atau di antara soal (bukan soal, tidak dinilai).",
+        "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
+    },
+    "HINT": {
+        "nama": "Petunjuk (Hint) Kuis", "desc": "Petunjuk yang terseling di antara soal kuis.",
+        "spec": "- [HINT]Petunjuk untuk soal berikutnya.[/HINT] di dalam [QUIZ] di antara blok soal (bukan soal, tidak dinilai).",
+        "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
+    },
+    "EXAMPLE": {
+        "nama": "Contoh Pengantar Kuis", "desc": "Contoh pengerjaan sebagai pengantar kuis.",
+        "spec": "- [EXAMPLE]Contoh pengerjaan.[/EXAMPLE] di dalam [QUIZ] sebelum soal pertama atau di antara soal (bukan soal, tidak dinilai).",
+        "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
+    },
+    "WARNING": {
+        "nama": "Peringatan Kuis", "desc": "Peringatan penting di dalam kuis (mis. aturan ujian).",
+        "spec": "- [WARNING]Peringatan penting.[/WARNING] di dalam [QUIZ] sebelum soal pertama atau di antara soal (bukan soal, tidak dinilai).",
+        "jenis": "kuis-pg", "contoh": _QUIZ_PG_PROLOG,
+    },
+}
+TAGS_META["kuis-pg"].update(_PENGANTAR_PG)
+TAGS_META["kuis-esai"].update(
+    {
+        tag: {**meta, "jenis": "kuis-esai", "contoh": _QUIZ_ESAI_PROLOG}
+        for tag, meta in _PENGANTAR_PG.items()
+    }
+)

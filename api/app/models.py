@@ -478,3 +478,28 @@ class MaterialRead(Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), nullable=False)
     siswa_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=now)
+
+
+class CekAnswer(Base):
+    """Jawaban siswa atas soal sisipan [CEK] (Cek Pemahaman) dalam materi.
+
+    Satu baris per (materi, siswa, indeks cek); jawaban ulang MENIMPA
+    (boleh diulang, nilai terakhir yang dipakai). `benar`/`skor` hanya
+    untuk PG (dinilai otomatis); esai = cek mandiri (referensi dibuka
+    setelah menjawab), tidak diskor.
+    """
+
+    __tablename__ = "cek_answers"
+    __table_args__ = (UniqueConstraint("material_id", "siswa_id", "cek_index", name="uq_cek_jawaban"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), nullable=False)
+    siswa_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    cek_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    tipe: Mapped[str] = mapped_column(String(20), nullable=False)
+    jawaban: Mapped[str] = mapped_column(Text, nullable=False)
+    benar: Mapped[Optional[bool]] = mapped_column(Boolean)
+    skor: Mapped[Optional[float]] = mapped_column(Float)
+    diperbarui_pada: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), default=now, onupdate=now
+    )

@@ -99,7 +99,7 @@ def _normalize_legacy(questions: list, tipe: str) -> dict:
                 "jawaban_referensi": None,
             }
         )
-    return {"tipe": tipe, "questions": out}
+    return {"tipe": tipe, "questions": out, "items": [{"jenis": "soal", "soal": q} for q in out]}
 
 
 def _legacy_fallback(raw_text: str) -> dict:
@@ -158,8 +158,17 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
         return {"success": False, "content": None, "errors": errors}
 
     questions = []
+    items = []  # urutan tampil: blok konten (prolog/hint) terseling soal
     for child in quiz_block.children:
+        if isinstance(child, TextNode):
+            teks_bebas = child.text.strip()
+            if teks_bebas:
+                items.append({"jenis": "konten", "tipe": "paragraf", "teks": teks_bebas})
+            continue
         if not isinstance(child, BlockNode):
+            continue
+        if child.tag in ("NOTE", "HINT", "EXAMPLE", "WARNING", "SUMMARY"):
+            items.append({"jenis": "konten", "tipe": child.tag.lower(), "teks": _raw_text(child)})
             continue
         if not (child.tag.startswith("QUESTION") and child.tag != "QUESTION"):
             continue
@@ -201,22 +210,22 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
                 continue
             for o in options:
                 o["is_correct"] = o["label"] in correct
-            questions.append(
-                {"tipe": tipe, "pertanyaan": q_text, "bobot": bobot, "options": options, "jawaban_referensi": None}
-            )
+            soal = {"tipe": tipe, "pertanyaan": q_text, "bobot": bobot, "options": options, "jawaban_referensi": None}
+            questions.append(soal)
+            items.append({"jenis": "soal", "soal": soal})
         else:
-            questions.append(
-                {
-                    "tipe": tipe,
-                    "pertanyaan": q_text,
-                    "bobot": bobot,
-                    "options": [],
-                    "jawaban_referensi": answer_raw or None,
-                }
-            )
+            soal = {
+                "tipe": tipe,
+                "pertanyaan": q_text,
+                "bobot": bobot,
+                "options": [],
+                "jawaban_referensi": answer_raw or None,
+            }
+            questions.append(soal)
+            items.append({"jenis": "soal", "soal": soal})
 
     if errors:
         return {"success": False, "content": None, "errors": errors}
     if not questions:
         return {"success": False, "content": None, "errors": [{"line": 1, "message": "No questions found in [QUIZ]."}]}
-    return {"success": True, "content": {"tipe": tipe, "questions": questions}, "errors": []}
+    return {"success": True, "content": {"tipe": tipe, "questions": questions, "items": items}, "errors": []}

@@ -22,13 +22,20 @@ interface ParsedQuestion {
   jawaban_referensi: string | null;
 }
 
-/** Satu kartu soal pada mode Formulir (U1 audit UX). */
+/** Satu kartu soal pada mode Formulir (U1 audit UX).
+ * Bila `konten` terisi, kartu ini adalah BLOK PENGANTAR (prolog/hint/
+ * catatan di dalam kuis) — bukan soal dan tidak dinilai. */
 interface CardSoal {
   pertanyaan: string;
   opsi: string[];
   kunci: number[]; // indeks opsi yang benar (boleh >1 = multi-benar)
   bobot: string;
   referensi: string;
+  konten?: { tipe: "paragraf" | "note" | "hint" | "example" | "warning"; teks: string };
+}
+
+function kartuKonten(): CardSoal {
+  return { pertanyaan: "", opsi: [], kunci: [], bobot: "1", referensi: "", konten: { tipe: "paragraf", teks: "" } };
 }
 
 const HURUF = ["A", "B", "C", "D", "E"];
@@ -39,8 +46,20 @@ function kartuKosong(): CardSoal {
 
 function kartuKeTeks(cards: CardSoal[], tipe: "pilihan_ganda" | "teks"): string {
   const lines: string[] = ["[QUIZ]", `[TYPE]${tipe === "pilihan_ganda" ? "pilihan_ganda" : "essay"}[/TYPE]`];
-  cards.forEach((c, i) => {
-    lines.push(`[QUESTION ${i + 1}]`);
+  let nomor = 0;
+  cards.forEach((c) => {
+    if (c.konten) {
+      const isi = c.konten.teks.trim();
+      if (!isi) return;
+      if (c.konten.tipe === "paragraf") lines.push(isi);
+      else {
+        const tag = { note: "NOTE", hint: "HINT", example: "EXAMPLE", warning: "WARNING" }[c.konten.tipe];
+        lines.push(`[${tag}]${isi}[/${tag}]`);
+      }
+      return;
+    }
+    nomor++;
+    lines.push(`[QUESTION ${nomor}]`);
     lines.push(`[QUESTION]${c.pertanyaan.trim()}[/QUESTION]`);
     if (tipe === "pilihan_ganda") {
       lines.push("[OPTIONS]");
@@ -53,7 +72,7 @@ function kartuKeTeks(cards: CardSoal[], tipe: "pilihan_ganda" | "teks"): string 
       if (c.referensi.trim()) lines.push(`[ANSWER]${c.referensi.trim()}[/ANSWER]`);
       if (c.bobot && c.bobot !== "1") lines.push(`[WEIGHT]${c.bobot}[/WEIGHT]`);
     }
-    lines.push(`[/QUESTION ${i + 1}]`);
+    lines.push(`[/QUESTION ${nomor}]`);
   });
   lines.push("[/QUIZ]");
   return lines.join("\n");
@@ -93,7 +112,7 @@ function EditorKuisInner() {
   const [saving, setSaving] = useState(false);
 
   async function parseTeks(value: string, t: string) {
-    const res = await apiFetch<{ success: boolean; content: { questions: ParsedQuestion[] } | null; errors: TcmlError[] }>(
+    const res = await apiFetch<{ success: boolean; content: { questions: ParsedQuestion[]; items?: { jenis: string; tipe?: string; teks?: string }[] } | null; errors: TcmlError[] }>(
       "/api/v1/parse/quiz",
       { method: "POST", body: { teks: value, tipe: t } },
     );
@@ -135,13 +154,28 @@ function EditorKuisInner() {
     try {
       const res = await parseTeks(value, t);
       if (res.success && res.content) {
-        const mapped: CardSoal[] = res.content.questions.map((q) => ({
+        const soalKeKartu = (q: ParsedQuestion): CardSoal => ({
           pertanyaan: q.pertanyaan,
           opsi: q.options.length ? q.options.map((o) => o.teks) : ["", "", "", ""],
           kunci: q.options.map((o, idx) => (o.is_correct ? idx : -1)).filter((x) => x >= 0),
           bobot: String(q.bobot ?? 1),
           referensi: q.jawaban_referensi ?? "",
-        }));
+        });
+        const mapped: CardSoal[] = [];
+        if (res.content.items?.length) {
+          let qi = 0;
+          for (const it of res.content.items) {
+            if (it.jenis === "konten") {
+              const tp = (["paragraf", "note", "hint", "example", "warning"].includes(it.tipe ?? "") ? it.tipe : "paragraf") as NonNullable<CardSoal["konten"]>["tipe"];
+              mapped.push({ ...kartuKonten(), konten: { tipe: tp, teks: it.teks ?? "" } });
+            } else {
+              const q = res.content.questions[qi++];
+              if (q) mapped.push(soalKeKartu(q));
+            }
+          }
+        } else {
+          mapped.push(...res.content.questions.map(soalKeKartu));
+        }
         setCards(mapped.length ? mapped : [kartuKosong()]);
         setErrors([]);
         return true;
@@ -358,24 +392,54 @@ function EditorKuisInner() {
               {cards.map((c, i) => (
                 <div className="card" key={i} style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <strong>Soal {i + 1}</strong>
+                    <strong>{c.konten ? "📖 Blok Pengantar" : `Soal ${cards.slice(0, i + 1).filter((x) => !x.konten).length}`}</strong>
                     <span>
-                      <span className="muted">Bobot </span>
-                      <input
-                        type="number" min={0.5} step={0.5} value={c.bobot} style={{ width: 62 }}
-                        className="input"
-                        onChange={(e) => updateCard(i, { bobot: e.target.value })}
-                      />{" "}
+                      {!c.konten && <span className="muted">Bobot </span>}
+                      {!c.konten && (
+                        <input
+                          type="number" min={0.5} step={0.5} value={c.bobot} style={{ width: 62 }}
+                          className="input"
+                          onChange={(e) => updateCard(i, { bobot: e.target.value })}
+                        />
+                      )}{" "}
                       <button className="btn btn-sm btn-danger" onClick={() => sinkronDariKartu(cards.filter((_, idx) => idx !== i))}>Hapus</button>
                     </span>
                   </div>
+                  {c.konten ? (
+                    <>
+                      <p className="muted" style={{ marginTop: 6 }}>
+                        Teks ini tampil di kuis sebagai pengantar/selingan — bukan soal, tidak dinilai. Cocok untuk prolog cerita, bacaan, atau petunjuk di tengah kuis.
+                      </p>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                        <select
+                          className="input"
+                          style={{ maxWidth: 220 }}
+                          value={c.konten.tipe}
+                          onChange={(e) => updateCard(i, { konten: { ...c.konten!, tipe: e.target.value as NonNullable<CardSoal["konten"]>["tipe"] } })}
+                        >
+                          <option value="paragraf">📄 Paragraf biasa</option>
+                          <option value="note">📝 Catatan</option>
+                          <option value="hint">💡 Petunjuk (hint)</option>
+                          <option value="example">📘 Contoh</option>
+                          <option value="warning">⚠️ Peringatan</option>
+                        </select>
+                      </div>
+                      <textarea
+                        className="textarea" rows={3} style={{ marginTop: 8 }}
+                        placeholder="Tulis teks pengantarnya di sini..."
+                        value={c.konten.teks}
+                        onChange={(e) => updateCard(i, { konten: { ...c.konten!, teks: e.target.value } })}
+                      />
+                    </>
+                  ) : (
                   <textarea
                     className="textarea" rows={2} style={{ marginTop: 8 }}
                     placeholder="Tulis pertanyaan di sini..."
                     value={c.pertanyaan}
                     onChange={(e) => updateCard(i, { pertanyaan: e.target.value })}
                   />
-                  {tipe === "pilihan_ganda" ? (
+                  )}
+                  {!c.konten && (tipe === "pilihan_ganda" ? (
                     <>
                       {c.opsi.map((o, j) => (
                         <div key={j} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 7 }}>
@@ -427,12 +491,20 @@ function EditorKuisInner() {
                         onChange={(e) => updateCard(i, { referensi: e.target.value })}
                       />
                     </>
-                  )}
+                  ))}
                 </div>
               ))}
-              <button className="btn" style={{ width: "100%", padding: 11 }} onClick={() => sinkronDariKartu([...cards, kartuKosong()])}>
-                ＋ Tambah Soal
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn" style={{ flex: 1, padding: 11 }} onClick={() => sinkronDariKartu([...cards, kartuKosong()])}>
+                  ＋ Tambah Soal
+                </button>
+                <button className="btn" style={{ flex: 1, padding: 11 }} onClick={() => sinkronDariKartu([...cards, kartuKonten()])}>
+                  📖 ＋ Blok Pengantar
+                </button>
+              </div>
+              <p className="muted" style={{ marginTop: 8 }}>
+                📖 <strong>Blok Pengantar</strong> = teks di dalam kuis (prolog, bacaan, hint) — tampil mengikuti urutan kartu, bukan soal dan tidak dinilai. Soal latihan di tengah <em>materi</em> memakai blok 🧠 Cek Pemahaman di editor materi.
+              </p>
             </>
           ) : (
             <>

@@ -179,6 +179,33 @@ def document_to_blocks(teks: str) -> dict:
                     "deskripsi": "\n".join(lines[1:]),
                 }
             )
+        elif base == "CEK":
+            from .cek import parse_cek_node
+
+            parsed = parse_cek_node(child, [])
+            if parsed is None:
+                return gagal("Blok [CEK] tidak bisa dipetakan ke Mode Blok.")
+            if parsed["tipe"] == "pilihan_ganda":
+                blocks.append(
+                    {
+                        "jenis": "cek-pg",
+                        "pertanyaan": parsed["pertanyaan"],
+                        "opsi": [
+                            {"teks": o["teks"], "benar": o["is_correct"]}
+                            for o in parsed["options"]
+                        ],
+                        "bobot": parsed["bobot"],
+                    }
+                )
+            else:
+                blocks.append(
+                    {
+                        "jenis": "cek-esai",
+                        "pertanyaan": parsed["pertanyaan"],
+                        "referensi": parsed["jawaban_referensi"] or "",
+                        "bobot": parsed["bobot"],
+                    }
+                )
         else:
             return gagal(f"Tag [{base}] belum didukung Mode Blok.")
 

@@ -244,11 +244,17 @@ def _progress_for_siswa(db: Session, subject, siswa_id: int) -> dict:
         a.quiz_id: a
         for a in db.query(QuizAttempt).filter(QuizAttempt.siswa_id == siswa_id).all()
     }
+    from ..models import CekAnswer
+
+    cek_by_material: dict[int, dict[int, CekAnswer]] = {}
+    for a in db.query(CekAnswer).filter(CekAnswer.siswa_id == siswa_id).all():
+        cek_by_material.setdefault(a.material_id, {})[a.cek_index] = a
     total_materi = 0
     total_dibaca = 0
     total_kuis = 0
     total_dikerjakan = 0
     skor_list: list[float] = []
+    skor_cek_list: list[float] = []
     per_meeting = []
     for mt in meetings:
         materials = db.query(Material).filter(Material.meeting_id == mt.id).all()
@@ -258,7 +264,10 @@ def _progress_for_siswa(db: Session, subject, siswa_id: int) -> dict:
             total_materi += 1
             dibaca = m.id in read_ids
             total_dibaca += 1 if dibaca else 0
-            m_items.append({"id": m.id, "judul": m.judul, "dibaca": dibaca})
+            skor_cek = _skor_cek_materi(db, m, cek_by_material.get(m.id, {}))
+            if skor_cek is not None:
+                skor_cek_list.append(skor_cek)
+            m_items.append({"id": m.id, "judul": m.judul, "dibaca": dibaca, "skor_cek": skor_cek})
         q_items = []
         for q in quizzes:
             total_kuis += 1
@@ -293,8 +302,29 @@ def _progress_for_siswa(db: Session, subject, siswa_id: int) -> dict:
             "persen_kuis": persen_kuis,
             "persen_total": round(100 * total_selesai / total_item, 1) if total_item else 100.0,
             "rata_skor": round(sum(skor_list) / len(skor_list), 1) if skor_list else None,
+            "rata_skor_cek": round(sum(skor_cek_list) / len(skor_cek_list), 1) if skor_cek_list else None,
         },
     }
+
+
+def _skor_cek_materi(db: Session, m, jawaban: dict) -> float | None:
+    """Persen nilai Cek Pemahaman satu materi untuk satu siswa.
+
+    None bila materi tidak punya soal PG sisipan atau siswa belum
+    menjawab satu pun (esai sisipan tidak diskor — cek mandiri).
+    """
+    if not jawaban:
+        return None
+    from ..tcml.cek import extract_ceks
+
+    ceks, errors = extract_ceks(m.teks_mentah or "")
+    if errors or not ceks:
+        return None
+    maks = sum(c["bobot"] for c in ceks if c["tipe"] == "pilihan_ganda")
+    if maks <= 0:
+        return None
+    diperoleh = sum((a.skor or 0) for a in jawaban.values() if a.tipe == "pilihan_ganda")
+    return round(diperoleh / maks * 100, 1)
 
 
 @router.get("/api/v1/subjects/{subject_id}/progress")

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
@@ -36,6 +37,22 @@ interface Material {
     sebelumnya: { id: number; judul: string } | null;
     berikutnya: { id: number; judul: string } | null;
   } | null;
+  cek?: {
+    daftar: CekItem[];
+    skor: { diperoleh: number; maksimal: number; persen: number } | null;
+  };
+}
+
+interface CekItem {
+  indeks: number;
+  tipe: string;
+  pertanyaan: string;
+  bobot: number;
+  multi?: boolean;
+  options: { label: string; teks: string }[];
+  kunci?: string[];
+  jawaban_referensi?: string;
+  jawabanku?: { jawaban: string; benar: boolean | null } | null;
 }
 
 function formatSize(n: number | null): string {
@@ -71,6 +88,20 @@ export default function MateriPage() {
   const [sudahDibaca, setSudahDibaca] = useState(false);
   const [hemat, setHemat] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const articleRef = useRef<HTMLElement>(null);
+  const [cekSlots, setCekSlots] = useState<HTMLElement[]>([]);
+  const [skorCek, setSkorCek] = useState<{ diperoleh: number; maksimal: number; persen: number } | null>(null);
+
+  // Panel Cek Pemahaman hidup di dalam placeholder [data-cek-index]
+  // pada HTML materi — kumpulkan elemennya setelah materi termuat.
+  useEffect(() => {
+    if (!material || !articleRef.current) {
+      setCekSlots([]);
+      return;
+    }
+    setSkorCek(material.cek?.skor ?? null);
+    setCekSlots(Array.from(articleRef.current.querySelectorAll<HTMLElement>("[data-cek-index]")));
+  }, [material]);
 
   const load = useCallback(async () => {
     try {
@@ -180,9 +211,32 @@ export default function MateriPage() {
             )}
           </div>
           <article
+            ref={articleRef}
             className="card tcml"
             dangerouslySetInnerHTML={{ __html: material.rendered_html ?? "" }}
           />
+          {(material.cek?.daftar ?? []).map((item) => {
+            const slot = cekSlots.find(
+              (el) => el.dataset.cekIndex === String(item.indeks),
+            );
+            if (!slot) return null;
+            return createPortal(
+              <PanelCek
+                key={item.indeks}
+                materialId={material.id}
+                item={item}
+                peran={user.role === "siswa" ? "siswa" : "staf"}
+                onSkorBaru={(s) => setSkorCek(s)}
+              />,
+              slot,
+              `cek-${item.indeks}`,
+            );
+          })}
+          {user.role === "siswa" && skorCek && (
+            <p style={{ marginTop: 10 }}>
+              <span className="badge">🧠 Nilai Cek Pemahaman materi ini: {skorCek.persen} (bobot {skorCek.diperoleh}/{skorCek.maksimal})</span>
+            </p>
+          )}
           {user.role === "siswa" && sudahDibaca && (
             <p style={{ marginTop: 10 }}><span className="badge">✓ Sudah dibaca — tercatat di progress Anda</span></p>
           )}
@@ -247,6 +301,9 @@ export default function MateriPage() {
                 Kuis ini satu dokumen dengan materi di atas — nilainya tercatat terpisah di progress kelas.
               </p>
             </div>
+          )}
+          {kelola && (material.cek?.daftar.length ?? 0) > 0 && (
+            <HasilCekCard materialId={material.id} />
           )}
           <SubmissionPanel materialId={material.id} user={user} kelola={!!kelola} />
           {material.navigasi && (material.navigasi.sebelumnya || material.navigasi.berikutnya) && (
@@ -436,6 +493,195 @@ function SubmissionPanel({ materialId, user, kelola }: { materialId: number; use
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Panel satu soal Cek Pemahaman — dirender lewat portal ke placeholder
+ * [data-cek-index] di dalam HTML materi. PG dinilai seketika oleh server;
+ * esai membuka referensi setelah siswa menjawab (cek mandiri). */
+function PanelCek({
+  materialId,
+  item,
+  peran,
+  onSkorBaru,
+}: {
+  materialId: number;
+  item: CekItem;
+  peran: "siswa" | "staf";
+  onSkorBaru: (skor: { diperoleh: number; maksimal: number; persen: number } | null) => void;
+}) {
+  const [pilihan, setPilihan] = useState<string[]>(
+    item.jawabanku && item.tipe === "pilihan_ganda"
+      ? item.jawabanku.jawaban.split(",").map((s) => s.trim()).filter(Boolean)
+      : [],
+  );
+  const [teksJawaban, setTeksJawaban] = useState(
+    item.jawabanku && item.tipe === "teks" ? item.jawabanku.jawaban : "",
+  );
+  const [benar, setBenar] = useState<boolean | null>(item.jawabanku?.benar ?? null);
+  const [kunci, setKunci] = useState<string[] | null>(null);
+  const [referensi, setReferensi] = useState<string | null>(item.jawaban_referensi ?? null);
+  const [sibuk, setSibuk] = useState(false);
+  const [pesan, setPesan] = useState("");
+  const sudahJawab = item.jawabanku != null || benar !== null || referensi !== null;
+
+  async function kirim() {
+    const jawaban = item.tipe === "pilihan_ganda" ? pilihan.join(",") : teksJawaban.trim();
+    if (!jawaban) {
+      setPesan(item.tipe === "pilihan_ganda" ? "Pilih jawaban dulu." : "Tulis jawaban dulu.");
+      return;
+    }
+    setSibuk(true);
+    setPesan("");
+    try {
+      const r = await apiFetch<{
+        benar: boolean | null;
+        kunci?: string[];
+        jawaban_referensi?: string;
+        skor: { diperoleh: number; maksimal: number; persen: number } | null;
+      }>(`/api/v1/materials/${materialId}/cek/${item.indeks}/jawab`, {
+        method: "POST",
+        body: { jawaban },
+      });
+      setBenar(r.benar);
+      if (r.kunci) setKunci(r.kunci);
+      if (r.jawaban_referensi) setReferensi(r.jawaban_referensi);
+      onSkorBaru(r.skor);
+    } catch (err) {
+      setPesan(err instanceof Error ? err.message : "Gagal mengirim jawaban.");
+    } finally {
+      setSibuk(false);
+    }
+  }
+
+  const gaya: React.CSSProperties = {
+    border: "2px dashed #FFB020",
+    background: "#FFFBEB",
+    borderRadius: 12,
+    padding: 14,
+    margin: "14px 0",
+  };
+
+  if (peran === "staf") {
+    return (
+      <div style={gaya}>
+        <p style={{ margin: "0 0 6px" }}>
+          <strong>🧠 Cek Pemahaman {item.indeks + 1}</strong>{" "}
+          <span className="badge">bobot {item.bobot}</span>
+        </p>
+        <p style={{ margin: "0 0 6px" }}>{item.pertanyaan}</p>
+        {item.tipe === "pilihan_ganda" ? (
+          <ul style={{ margin: "0 0 0 18px" }}>
+            {item.options.map((o) => (
+              <li key={o.label} style={{ color: item.kunci?.includes(o.label) ? "var(--ok)" : undefined }}>
+                {o.label}. {o.teks} {item.kunci?.includes(o.label) ? "✅" : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>Referensi: {item.jawaban_referensi}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={gaya}>
+      <p style={{ margin: "0 0 6px" }}>
+        <strong>🧠 Cek Pemahaman {item.indeks + 1}</strong>{" "}
+        <span className="badge">latihan · boleh diulang</span>{" "}
+        <span className="badge">bobot {item.bobot}</span>
+      </p>
+      <p style={{ margin: "0 0 8px" }}>{item.pertanyaan}</p>
+      {item.tipe === "pilihan_ganda" ? (
+        <div>
+          {item.options.map((o) => {
+            const aktif = pilihan.includes(o.label);
+            return (
+              <label key={o.label} style={{ display: "block", padding: "4px 0", cursor: "pointer" }}>
+                <input
+                  type={item.multi ? "checkbox" : "radio"}
+                  name={`cek-${materialId}-${item.indeks}`}
+                  checked={aktif}
+                  onChange={() => {
+                    setBenar(null);
+                    setKunci(null);
+                    setPilihan(item.multi
+                      ? (aktif ? pilihan.filter((p) => p !== o.label) : [...pilihan, o.label])
+                      : [o.label]);
+                  }}
+                />{" "}
+                <strong>{o.label}.</strong> {o.teks}
+              </label>
+            );
+          })}
+          {item.multi && <p className="muted" style={{ margin: "4px 0" }}>Soal ini punya lebih dari satu jawaban benar — pilih semuanya.</p>}
+        </div>
+      ) : (
+        <textarea
+          className="textarea"
+          rows={3}
+          placeholder="Tulis jawabanmu dengan bahasamu sendiri..."
+          value={teksJawaban}
+          onChange={(e) => setTeksJawaban(e.target.value)}
+        />
+      )}
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <button className="btn btn-sm btn-primary" onClick={kirim} disabled={sibuk}>
+          {sibuk ? "Memeriksa..." : sudahJawab ? "Jawab Ulang" : "Periksa Jawaban"}
+        </button>
+        {benar === true && <span className="badge">✅ Benar!</span>}
+        {benar === false && <span className="badge badge-off">❌ Belum tepat — coba lagi</span>}
+      </div>
+      {pesan && <p className="muted" style={{ marginTop: 6 }}>{pesan}</p>}
+      {item.tipe === "pilihan_ganda" && kunci && (
+        <p style={{ marginTop: 8 }}>
+          Kunci: <strong>{kunci.join(", ")}</strong>
+        </p>
+      )}
+      {item.tipe === "teks" && referensi && (
+        <div style={{ marginTop: 8, background: "#fff", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+          <strong>📖 Jawaban referensi — bandingkan dengan jawabanmu:</strong>
+          <p style={{ margin: "4px 0 0" }}>{referensi}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Ringkasan hasil Cek Pemahaman kelas ini untuk guru/admin. */
+function HasilCekCard({ materialId }: { materialId: number }) {
+  const [data, setData] = useState<{
+    total_cek: number;
+    siswa: { siswa_id: number; nama: string; terjawab: number; total: number; skor_persen: number | null }[];
+  } | null>(null);
+  useEffect(() => {
+    apiFetch(`/api/v1/materials/${materialId}/cek/hasil`)
+      .then((d) => setData(d as typeof data))
+      .catch(() => {});
+  }, [materialId]);
+  if (!data) return null;
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h3>🧠 Hasil Cek Pemahaman</h3>
+      <table className="table" style={{ marginTop: 8 }}>
+        <thead>
+          <tr><th>Siswa</th><th>Terjawab</th><th>Nilai Materi (PG)</th></tr>
+        </thead>
+        <tbody>
+          {data.siswa.map((s) => (
+            <tr key={s.siswa_id}>
+              <td>{s.nama}</td>
+              <td>{s.terjawab}/{s.total}</td>
+              <td>{s.skor_persen !== null ? s.skor_persen : "—"}</td>
+            </tr>
+          ))}
+          {data.siswa.length === 0 && (
+            <tr><td colSpan={3} className="muted">Belum ada siswa terdaftar.</td></tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

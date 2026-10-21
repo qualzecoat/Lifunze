@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
@@ -26,6 +26,13 @@ interface AttemptQuestion {
   kunci_option_ids?: number[];
   jawaban_referensi?: string | null;
 }
+interface KontenItem {
+  jenis: string;
+  tipe?: string;
+  teks?: string;
+  indeks?: number;
+  question_id?: number;
+}
 interface AttemptView {
   attempt: {
     id: number;
@@ -38,6 +45,7 @@ interface AttemptView {
   };
   quiz: { id: number; judul: string; tipe: string; tampilkan_kunci: boolean };
   questions: AttemptQuestion[];
+  konten?: KontenItem[];
   pesan?: string;
 }
 interface QuizPublic {
@@ -54,6 +62,7 @@ interface QuizPublic {
   attempt_saya: { id: number; status: string; skor: number | null } | null;
   grup_dokumen?: string | null;
   dokumen_materi_id?: number | null;
+  konten?: KontenItem[];
 }
 interface QuizFull {
   id: number;
@@ -70,6 +79,7 @@ interface QuizFull {
     jawaban_referensi: string | null;
     options: { id: number; label: string; teks: string; is_correct: boolean }[];
   }[];
+  konten?: KontenItem[];
 }
 interface ResultRow {
   attempt_id: number;
@@ -128,6 +138,52 @@ export default function KuisPage() {  const params = useParams<{ id: string }>()
 }
 
 /* ================================================================ SISWA */
+/** Blok pengantar/selingan di dalam kuis (prolog, hint, catatan) —
+ * bukan soal, tidak dinilai. */
+function KontenBlok({ tipe, teks, rapat }: { tipe?: string; teks?: string; rapat?: boolean }) {
+  if (!teks) return null;
+  if (!tipe || tipe === "paragraf") {
+    return <p style={{ marginTop: rapat ? 6 : 12, whiteSpace: "pre-wrap" }}>{teks}</p>;
+  }
+  const gaya: Record<string, { label: string; bg: string }> = {
+    note: { label: "📝 Catatan", bg: "#EEF2FF" },
+    hint: { label: "💡 Petunjuk", bg: "#FFFBEB" },
+    example: { label: "📘 Contoh", bg: "#ECFDF5" },
+    warning: { label: "⚠️ Peringatan", bg: "#FEF2F2" },
+    summary: { label: "📋 Ringkasan", bg: "#F5F3FF" },
+  };
+  const g = gaya[tipe] ?? gaya.note;
+  return (
+    <div style={{ marginTop: rapat ? 6 : 12, background: g.bg, border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px" }}>
+      <strong>{g.label}</strong>
+      <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{teks}</p>
+    </div>
+  );
+}
+
+/** Kelompokkan blok konten menurut soal yang mengikutinya. */
+function kelompokkanKonten(
+  konten: KontenItem[] | undefined,
+  urutanSoal: number[],
+): { sebelum: Map<number, KontenItem[]>; akhir: KontenItem[] } {
+  const sebelum = new Map<number, KontenItem[]>();
+  let pending: KontenItem[] = [];
+  let soalKe = 0;
+  for (const k of konten ?? []) {
+    if (k.jenis === "konten") {
+      pending.push(k);
+      continue;
+    }
+    const qid = k.question_id ?? urutanSoal[k.indeks ?? soalKe];
+    soalKe++;
+    if (qid !== undefined) {
+      sebelum.set(qid, [...(sebelum.get(qid) ?? []), ...pending]);
+      pending = [];
+    }
+  }
+  return { sebelum, akhir: pending };
+}
+
 function SiswaView({ quiz }: { quiz: QuizPublic }) {
   const [attempt, setAttempt] = useState<AttemptView | null>(null);
   const [answers, setAnswers] = useState<Record<number, number[] | string>>({});
@@ -232,6 +288,11 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
 
+  const { sebelum: kontenSebelum, akhir: kontenAkhir } = kelompokkanKonten(
+    attempt?.konten,
+    (attempt?.questions ?? []).map((q) => q.id),
+  );
+
   return (
     <div>
       <h1 style={{ fontSize: "1.5rem" }}>🧪 {quiz.judul}</h1>
@@ -251,6 +312,17 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
       )}
       {err && <div className="alert alert-error">{err}</div>}
       {msg && <div className="alert alert-ok">{msg}</div>}
+
+      {!attempt && (quiz.konten ?? []).some((k) => k.jenis === "konten") && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h3 style={{ marginBottom: 6 }}>📖 Pengantar Kuis</h3>
+          {(quiz.konten ?? [])
+            .slice(0, (() => { const i = (quiz.konten ?? []).findIndex((k) => k.jenis === "soal"); return i === -1 ? undefined : i; })())
+            .map((k, i) => (
+              <KontenBlok key={i} tipe={k.tipe} teks={k.teks} rapat />
+            ))}
+        </div>
+      )}
 
       {!attempt && (
         <div className="card" style={{ marginTop: 14 }}>
@@ -283,7 +355,11 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
             const inProgress = attempt.attempt.status === "in_progress";
             const selected = (answers[q.id] as number[]) ?? [];
             return (
-              <div className="card" key={q.id} style={{ marginTop: 12 }}>
+              <Fragment key={q.id}>
+                {(kontenSebelum.get(q.id) ?? []).map((k, ki) => (
+                  <KontenBlok key={ki} tipe={k.tipe} teks={k.teks} />
+                ))}
+              <div className="card" style={{ marginTop: 12 }}>
                 <p>
                   <strong>{i + 1}. {q.pertanyaan}</strong>{" "}
                   <span className="badge">bobot {q.bobot}</span>
@@ -341,8 +417,12 @@ function SiswaView({ quiz }: { quiz: QuizPublic }) {
                   </div>
                 )}
               </div>
+              </Fragment>
             );
           })}
+          {kontenAkhir.map((k, ki) => (
+            <KontenBlok key={`akhir-${ki}`} tipe={k.tipe} teks={k.teks} />
+          ))}
 
           {attempt.attempt.status === "in_progress" && (
             <div className="row-actions" style={{ marginTop: 14 }}>
@@ -460,7 +540,11 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
       <div className="card" style={{ marginTop: 12 }}>
         <h3>Soal & Kunci</h3>
         {quiz.questions.map((q, i) => (
-          <div key={q.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+          <Fragment key={q.id}>
+            {(kelompokkanKonten(quiz.konten, quiz.questions.map((x) => x.id)).sebelum.get(q.id) ?? []).map((k, ki) => (
+              <KontenBlok key={ki} tipe={k.tipe} teks={k.teks} rapat />
+            ))}
+          <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
             <p><strong>{i + 1}. {q.pertanyaan}</strong> <span className="badge">bobot {q.bobot}</span></p>
             {q.options.map((o) => (
               <p key={o.id} style={{ color: o.is_correct ? "var(--ok)" : undefined }}>
@@ -469,6 +553,10 @@ function GuruView({ quiz }: { quiz: QuizFull }) {
             ))}
             {q.jawaban_referensi && <p className="muted">Referensi: {q.jawaban_referensi}</p>}
           </div>
+          </Fragment>
+        ))}
+        {kelompokkanKonten(quiz.konten, quiz.questions.map((x) => x.id)).akhir.map((k, ki) => (
+          <KontenBlok key={`akhir-${ki}`} tipe={k.tipe} teks={k.teks} rapat />
         ))}
       </div>
 
