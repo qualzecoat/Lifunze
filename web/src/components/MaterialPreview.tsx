@@ -2,6 +2,8 @@
 
 import { Fragment, type CSSProperties } from "react";
 
+import { pecahHtmlCek } from "@/lib/cekHtml";
+
 export interface MaterialPreviewCekOption {
   label: string;
   teks: string;
@@ -93,25 +95,6 @@ function PreviewCekPanel({ item, indeks }: { item: MaterialPreviewCek; indeks: n
  * HTML dipecah pada placeholder dan panel digambar sebagai komponen React
  * biasa di sela-selanya. Deterministik di SSR maupun klien.
  */
-const PLACEHOLDER_RE = /<div class="tc-cek" data-cek-index="(\d+)"[^>]*>[\s\S]*?<\/div>/g;
-
-type Segmen =
-  | { jenis: "html"; html: string }
-  | { jenis: "cek"; indeks: number; mentah: string };
-
-function pecahHtml(html: string): Segmen[] {
-  const hasil: Segmen[] = [];
-  let terakhir = 0;
-  for (const m of html.matchAll(PLACEHOLDER_RE)) {
-    const idx = m.index ?? 0;
-    if (idx > terakhir) hasil.push({ jenis: "html", html: html.slice(terakhir, idx) });
-    hasil.push({ jenis: "cek", indeks: Number(m[1]), mentah: m[0] });
-    terakhir = idx + m[0].length;
-  }
-  if (terakhir < html.length) hasil.push({ jenis: "html", html: html.slice(terakhir) });
-  return hasil;
-}
-
 export default function MaterialPreview({
   html,
   cek = [],
@@ -125,7 +108,7 @@ export default function MaterialPreview({
 }) {
   const perIndeks = new Map<number, MaterialPreviewCek>();
   cek.forEach((item, i) => perIndeks.set(item.indeks ?? i, item));
-  const segmen = pecahHtml(html);
+  const segmen = pecahHtmlCek(html);
 
   return (
     <article className={className} style={style}>

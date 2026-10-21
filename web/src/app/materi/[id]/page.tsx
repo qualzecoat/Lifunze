@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import { API_BASE, apiFetch, getMe, type User } from "@/lib/api";
+import { pecahHtmlCek } from "@/lib/cekHtml";
 
 interface MaterialFile {
   id: number;
@@ -89,23 +89,10 @@ export default function MateriPage() {
   const [sudahDibaca, setSudahDibaca] = useState(false);
   const [hemat, setHemat] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const articleRef = useRef<HTMLElement>(null);
-  const [cekSlots, setCekSlots] = useState<HTMLElement[]>([]);
   const [skorCek, setSkorCek] = useState<{ diperoleh: number; maksimal: number; persen: number } | null>(null);
 
-  // Panel Cek Pemahaman hidup di dalam placeholder [data-cek-index]
-  // pada HTML materi — kumpulkan elemennya setelah materi termuat.
   useEffect(() => {
-    if (!material || !articleRef.current) {
-      setCekSlots([]);
-      return;
-    }
-    setSkorCek(material.cek?.skor ?? null);
-    const found = Array.from(articleRef.current.querySelectorAll<HTMLElement>("[data-cek-index]"));
-    // Placeholder renderer hanya penanda posisi; kosongkan teksnya agar
-    // tidak dobel dengan judul panel interaktif yang dipasang via portal.
-    found.forEach((el) => el.replaceChildren());
-    setCekSlots(found);
+    if (material) setSkorCek(material.cek?.skor ?? null);
   }, [material]);
 
   const load = useCallback(async () => {
@@ -215,28 +202,32 @@ export default function MateriPage() {
               </span>
             )}
           </div>
-          <article
-            ref={articleRef}
-            className="card tcml"
-            dangerouslySetInnerHTML={{ __html: material.rendered_html ?? "" }}
-          />
-          {(material.cek?.daftar ?? []).map((item) => {
-            const slot = cekSlots.find(
-              (el) => el.dataset.cekIndex === String(item.indeks),
-            );
-            if (!slot) return null;
-            return createPortal(
-              <PanelCek
-                key={item.indeks}
-                materialId={material.id}
-                item={item}
-                peran={user.role === "siswa" ? "siswa" : "staf"}
-                onSkorBaru={(s) => setSkorCek(s)}
-              />,
-              slot,
-              `cek-${item.indeks}`,
-            );
-          })}
+          {/* Panel Cek Pemahaman digambar sebagai komponen React biasa di
+              sela-sela segmen HTML (lihat lib/cekHtml) — BUKAN portal ke
+              placeholder innerHTML: pola portal terbukti gagal di browser
+              nyata (laporan Qualze 2026-10-21, panel tidak pernah muncul,
+              yang terlihat hanya teks placeholder). */}
+          <article className="card tcml">
+            {pecahHtmlCek(material.rendered_html ?? "").map((seg, i) => {
+              if (seg.jenis === "html") {
+                return <div key={i} dangerouslySetInnerHTML={{ __html: seg.html }} />;
+              }
+              const item = (material.cek?.daftar ?? []).find((c) => c.indeks === seg.indeks);
+              if (!item) {
+                return <div key={i} dangerouslySetInnerHTML={{ __html: seg.mentah }} />;
+              }
+              return (
+                <Fragment key={i}>
+                  <PanelCek
+                    materialId={material.id}
+                    item={item}
+                    peran={user.role === "siswa" ? "siswa" : "staf"}
+                    onSkorBaru={(s) => setSkorCek(s)}
+                  />
+                </Fragment>
+              );
+            })}
+          </article>
           {user.role === "siswa" && skorCek && (
             <p style={{ marginTop: 10 }}>
               <span className="badge">🧠 Nilai Cek Pemahaman materi ini: {skorCek.persen} (bobot {skorCek.diperoleh}/{skorCek.maksimal})</span>
@@ -516,9 +507,9 @@ function SubmissionPanel({ materialId, user, kelola }: { materialId: number; use
   );
 }
 
-/** Panel satu soal Cek Pemahaman — dirender lewat portal ke placeholder
- * [data-cek-index] di dalam HTML materi. PG dinilai seketika oleh server;
- * esai membuka referensi setelah siswa menjawab (cek mandiri). */
+/** Panel satu soal Cek Pemahaman — digambar inline di posisi placeholder
+ * [data-cek-index] dalam HTML materi (pecahHtmlCek). PG dinilai seketika
+ * oleh server; esai membuka referensi setelah siswa menjawab (cek mandiri). */
 function PanelCek({
   materialId,
   item,
