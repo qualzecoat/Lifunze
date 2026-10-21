@@ -18,7 +18,7 @@ interface Material {
   meeting_id: number;
   subject_id: number | null;
   judul: string;
-  teks_mentah: string;
+  teks_mentah: string | null; // null untuk siswa (audit #2 — sumber berkunci tidak dikirim)
   rendered_html: string | null;
   dibuat_oleh: number;
   files: MaterialFile[];

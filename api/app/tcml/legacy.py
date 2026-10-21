@@ -1,4 +1,5 @@
 # Parser format legacy v1 (label JUDUL:/TUJUAN:/MATERI:/CONTOH: dan blok SOAL n/JAWABAN:) — dipertahankan untuk kompatibilitas impor konten lama.
+import html
 import re
 
 def legacy_parse_material(raw_text):
@@ -9,7 +10,10 @@ def legacy_parse_material(raw_text):
 
     def process_block(label, content):
         if not content: return ""
-        text = "<br>".join(content)
+        # Escape SEMUA teks pengguna — keluaran fungsi ini disimpan sebagai
+        # rendered_html dan dirender mentah di halaman siswa (audit #3:
+        # tanpa escape, <img onerror=...> lolos menjadi stored XSS).
+        text = "<br>".join(html.escape(c) for c in content)
         if label == 'JUDUL':
             return f'<h2 class="material-judul">{text}</h2>'
         elif label == 'TUJUAN':
@@ -35,7 +39,7 @@ def legacy_parse_material(raw_text):
                 current_content.append(line_stripped)
             else:
                 if line_stripped:
-                    html_output.append(f'<div>{line_stripped}</div>')
+                    html_output.append(f'<div>{html.escape(line_stripped)}</div>')
 
     if current_label:
         html_output.append(process_block(current_label, current_content))

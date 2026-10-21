@@ -198,6 +198,10 @@ def get_one_material(
     subject, _ = _subject_of_material(db, m)
     require_subject_view(db, user, subject)
     out = material_out(m, subject.id)
+    if user.role == "siswa":
+        # Audit #2: teks_mentah memuat [ANSWER] Cek Pemahaman — siswa hanya
+        # boleh menerima HTML render + payload cek yang sudah disaring.
+        out["teks_mentah"] = None
     out["navigasi"] = _material_navigation(db, subject.id, m.id)
     if m.grup_dokumen:
         from ..models import Quiz

@@ -287,3 +287,56 @@ def test_generate_dokumen_jenis_ujian_tanpa_hint(client, monkeypatch):
     assert "JANGAN menyelipkan [HINT]" in prompts["user"]
     draf = r.json()["drafts"][0]
     assert draf["is_valid"], draf["errors"]
+
+
+def test_audit1_2_siswa_tidak_menerima_kunci(client):
+    """Audit #1/#2: siswa tidak boleh menerima teks_mentah berkunci maupun
+    soal/kunci versi staf lewat /materials/{id} dan /documents/{grup}."""
+    guru = make_user("guruA12", "guru")
+    siswa = make_user("siswaA12", "siswa", created_by_id=guru)
+    csrf_g = login(client, "guruA12")
+    sid = client.post("/api/v1/subjects", json={"nama": "K"}, headers={"x-csrf-token": csrf_g}).json()["id"]
+    mid = client.post(f"/api/v1/subjects/{sid}/meetings", json={"judul": "P1"}, headers={"x-csrf-token": csrf_g}).json()["id"]
+    client.post(f"/api/v1/subjects/{sid}/enroll", json={"siswa_ids": [siswa]}, headers={"x-csrf-token": csrf_g})
+    d = client.post(
+        f"/api/v1/meetings/{mid}/documents",
+        json={
+            "judul": "Dok", "jenis": "kuis",
+            "teks_materi": MATERI_CEK,
+            "teks_kuis_pg": (
+                "[QUIZ]\n[TYPE]pilihan_ganda[/TYPE]\n"
+                "[QUESTION 1]\n[QUESTION]Fungsi Ctrl+C?[/QUESTION]\n"
+                "[OPTIONS]\nA. Menyalin\nB. Menempel\n[/OPTIONS]\n[ANSWER]A[/ANSWER]\n[/QUESTION 1]\n[/QUIZ]"
+            ),
+        },
+        headers={"x-csrf-token": csrf_g},
+    )
+    assert d.status_code == 201, d.text
+    grup = d.json()["grup"]
+    mat_id = d.json()["material"]["id"]
+    # Guru tetap menerima versi penuh (editor membutuhkannya).
+    assert "[ANSWER]B[/ANSWER]" in d.json()["material"]["teks_mentah"]
+    assert d.json()["quizzes"][0]["questions"]
+
+    login(client, "siswaA12")
+    r = client.get(f"/api/v1/materials/{mat_id}")
+    assert r.status_code == 200
+    assert r.json()["teks_mentah"] is None
+
+    r2 = client.get(f"/api/v1/documents/{grup}")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["material"]["teks_mentah"] is None
+    assert body["quizzes"] and "questions" not in body["quizzes"][0]
+    assert "is_correct" not in str(body) and "jawaban_referensi" not in str(body)
+
+
+def test_audit3_parser_legacy_meng_escape_html():
+    """Audit #3: teks legacy tidak boleh menyisipkan HTML mentah (stored XSS)."""
+    from app.tcml.engine import parse_material
+
+    r = parse_material('MATERI:\n<img src=x onerror="alert(1)">')
+    assert r["success"]
+    assert "<img" not in r["content"] and "&lt;img" in r["content"]
+    r2 = parse_material("<script>alert(2)</script>")
+    assert "<script>" not in r2["content"]

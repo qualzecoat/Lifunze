@@ -88,10 +88,32 @@ def _anchor(material: Material | None, quizzes: list[Quiz]):
     return anchor
 
 
-def document_out(db: Session, grup: str) -> dict:
+def _quiz_meta_out(q: Quiz) -> dict:
+    """Metadata kuis TANPA soal/kunci — aman untuk siswa (audit #1)."""
+    return {
+        "id": q.id,
+        "judul": q.judul,
+        "tipe": q.tipe,
+        "dibuka_pada": q.dibuka_pada.isoformat() if q.dibuka_pada else None,
+        "ditutup_pada": q.ditutup_pada.isoformat() if q.ditutup_pada else None,
+        "durasi_menit": q.durasi_menit,
+    }
+
+
+def document_out(db: Session, grup: str, user: User | None = None) -> dict:
     material, quizzes = _anggota(db, grup)
     anchor = _anchor(material, quizzes)
     meeting = db.get(Meeting, anchor.meeting_id)
+    # Audit #1: siswa hanya boleh menerima proyeksi aman — tanpa teks_mentah
+    # (memuat kunci [CEK]) dan tanpa soal/kunci kuis versi staf.
+    untuk_siswa = user is not None and user.role == "siswa"
+    material_payload = (
+        material_out(material, meeting.subject_id if meeting else None)
+        if material
+        else None
+    )
+    if untuk_siswa and material_payload is not None:
+        material_payload["teks_mentah"] = None
     return {
         "grup": grup,
         "meeting_id": anchor.meeting_id,
@@ -101,12 +123,12 @@ def document_out(db: Session, grup: str) -> dict:
         "tenggat": (
             material.tenggat.isoformat() if material and material.tenggat else None
         ),
-        "material": (
-            material_out(material, meeting.subject_id if meeting else None)
-            if material
-            else None
+        "material": material_payload,
+        "quizzes": (
+            [_quiz_meta_out(q) for q in quizzes]
+            if untuk_siswa
+            else [_quiz_full_out(db, q) for q in quizzes]
         ),
-        "quizzes": [_quiz_full_out(db, q) for q in quizzes],
         "pengaturan_kuis": (
             quiz_settings_out(quizzes[0])
             if quizzes
@@ -259,7 +281,7 @@ def get_document(
     meeting = db.get(Meeting, anchor.meeting_id)
     subject = get_subject(db, meeting.subject_id)
     require_subject_view(db, user, subject)
-    return document_out(db, grup)
+    return document_out(db, grup, user)
 
 
 @router.patch("/api/v1/documents/{grup}", dependencies=[Depends(require_csrf)])
