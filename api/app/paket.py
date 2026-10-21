@@ -260,10 +260,74 @@ def build_spec_text(db: Session, pack: ParserPack) -> str:
     return spec_text_for_selection(db, slugs, pack.tag_pilihan)
 
 
+_KONTRAK_FORMAT_KUIS = {
+    "kuis_pg": """
+
+KONTRAK FORMAT KUIS (WAJIB — menyimpang dari ini membuat dokumen ditolak):
+[QUIZ]
+[TITLE]Judul kuis[/TITLE]
+[TYPE]pilihan_ganda[/TYPE]
+[QUESTION 1]
+[QUESTION]Teks soal pertama[/QUESTION]
+[OPTIONS]
+A. Pilihan satu
+B. Pilihan dua
+[/OPTIONS]
+[ANSWER]A[/ANSWER]
+[/QUESTION 1]
+[/QUIZ]
+- Setiap soal WAJIB dibungkus [QUESTION n] ... [/QUESTION n], bernomor urut dari 1.
+- [QUESTION] polos HANYA untuk teks soal DI DALAM pembungkus bernomor.
+- JANGAN PERNAH menulis [QUESTION] polos, [OPTIONS], atau [ANSWER] langsung di dalam [QUIZ].""",
+    "kuis_esai": """
+
+KONTRAK FORMAT KUIS (WAJIB — menyimpang dari ini membuat dokumen ditolak):
+[QUIZ]
+[TITLE]Judul kuis[/TITLE]
+[TYPE]essay[/TYPE]
+[QUESTION 1]
+[QUESTION]Teks soal pertama[/QUESTION]
+[ANSWER]Jawaban referensi singkat untuk soal ini.[/ANSWER]
+[/QUESTION 1]
+[/QUIZ]
+- Setiap soal WAJIB dibungkus [QUESTION n] ... [/QUESTION n], bernomor urut dari 1.
+- [QUESTION] polos HANYA untuk teks soal DI DALAM pembungkus bernomor.
+- Kuis ini ESAI: JANGAN memakai [OPTIONS] sama sekali; [ANSWER] berisi jawaban referensi.""",
+}
+
+_CATATAN_FORMAT_DOKUMEN = """
+
+CATATAN FORMAT (penting, jangan tertukar):
+- Di bagian [QUIZ]: setiap soal WAJIB dibungkus [QUESTION n] ... [/QUESTION n] bernomor urut; teks soal ditulis di [QUESTION] polos DI DALAM pembungkus itu; [OPTIONS]/[ANSWER] juga di dalam pembungkus.
+- Di bagian [MATERIAL]: soal sisipan memakai [CEK] ... [/CEK] dengan [QUESTION] polos di dalamnya — itu format yang berbeda dan hanya berlaku di dalam [CEK]."""
+
+
+def _spec_terfokus(db: Session, pack: ParserPack, kind: str) -> str:
+    """Spec difokuskan per jenis permintaan: kuis hanya menerima spec
+    modul kuisnya (spec modul lain — terutama [CEK] yang memakai
+    [QUESTION] polos sebagai pembungkus — terbukti membuat model
+    mencampuradukkan format); materi tidak menerima spec modul kuis."""
+    slugs = [m.slug for m in pack_module_rows(db, pack)]
+    if kind == "kuis_pg":
+        pilih = [s for s in slugs if s == "kuis-pg"]
+    elif kind == "kuis_esai":
+        pilih = [s for s in slugs if s == "kuis-esai"]
+    elif kind == "materi":
+        pilih = [s for s in slugs if s not in ("kuis-pg", "kuis-esai")]
+    else:
+        pilih = []
+    if pilih:
+        return spec_text_for_selection(db, pilih, pack.tag_pilihan)
+    return build_spec_text(db, pack)
+
+
 def build_system_prompt(
     db: Session, pack: ParserPack, kind: str, spec_override: str | None = None
 ) -> str:
     roots = ", ".join(f"[{r}]" for r in (pack.allowed_roots or []))
+    kontrak = _KONTRAK_FORMAT_KUIS.get(kind) or (
+        _CATATAN_FORMAT_DOKUMEN if kind == "dokumen" else ""
+    )
     return (
         "Kamu adalah penulis konten pembelajaran untuk LMS Lifunze. Kamu menulis konten "
         "dalam format TCML (markup berbasis tag kurung siku) sesuai spesifikasi paket parser berikut.\n\n"
@@ -275,7 +339,8 @@ def build_system_prompt(
         f"- Root block yang diizinkan paket ini: {roots}.\n"
         "- Gunakan HANYA tag yang ada pada modul-modul paket di bawah ini.\n"
         "- Bahasa konten: Bahasa Indonesia.\n\n"
-        f"{spec_override if spec_override is not None else build_spec_text(db, pack)}"
+        f"{spec_override if spec_override is not None else _spec_terfokus(db, pack, kind)}"
+        f"{kontrak}"
     )
 
 

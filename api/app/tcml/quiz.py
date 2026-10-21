@@ -34,6 +34,135 @@ from .core import ASTBuilder, BlockNode, TextNode, Tokenizer
 from .engine import parse_quiz_mcq, parse_quiz_text
 
 
+# ---------------------------------------------------------- normalisasi AI
+# Model AI (terutama yang lebih kecil) sangat sering menulis kuis dalam
+# "format datar": [QUESTION] polos sebagai pembungkus dengan [OPTIONS]/
+# [ANSWER] sebagai saudaranya — padahal format kanonis menuntut pembungkus
+# bernomor [QUESTION n]. Kesalahan ini murni mekanis, jadi diperbaiki
+# secara DETERMINISTIK di sini (bukan dengan meminta AI menulis ulang):
+# soal datar dikelompokkan menjadi pembungkus bernomor, dan seluruh
+# pembungkus dinomori ulang berurutan dari 1 (aturan audit #38).
+_TAG_TOKEN_RE = re.compile(r"\[/?[A-Z]+(?:\s+\d+)?\]")
+_QUIZ_SPAN_RE = re.compile(r"\[QUIZ\]([\s\S]*?)\[/QUIZ\]")
+_WRAPPER_RE = re.compile(r"^\[QUESTION\s+(\d+)\]")
+_BLOK_SOAL_RE = {
+    nama: re.compile(rf"\[{nama}\]([\s\S]*?)\[/{nama}\]")
+    for nama in ("QUESTION", "OPTIONS", "ANSWER", "WEIGHT")
+}
+
+
+def _segmen_level_atas(body: str) -> list[str]:
+    """Pecah isi root menjadi segmen blok level atas (sadar kedalaman)."""
+    segmen: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    dalam_blok = False
+    pos = 0
+    for m in _TAG_TOKEN_RE.finditer(body):
+        buf.append(body[pos : m.start()])
+        tok = m.group(0)
+        buf.append(tok)
+        if tok.startswith("[/"):
+            depth = max(0, depth - 1)
+        else:
+            depth += 1
+            dalam_blok = True
+        pos = m.end()
+        if dalam_blok and depth == 0:
+            segmen.append("".join(buf))
+            buf = []
+            dalam_blok = False
+    buf.append(body[pos:])
+    sisa = "".join(buf)
+    if sisa:
+        segmen.append(sisa)
+    return segmen
+
+
+def _urai_unit_datar(segmen_unit: list[str]) -> str | None:
+    """Susun ulang unit soal datar menjadi isi pembungkus kanonis:
+    [QUESTION]teks[/QUESTION] + [OPTIONS]? + [ANSWER]? + [WEIGHT]?.
+    Mengembalikan None bila blok [QUESTION] tidak ditemukan."""
+    gabungan = "\n".join(segmen_unit)
+    q = _BLOK_SOAL_RE["QUESTION"].search(gabungan)
+    if q is None:
+        return None
+    teks_soal = q.group(1)
+    # Varian bersarang: OPTIONS/ANSWER tertulis DI DALAM blok [QUESTION].
+    ekstra: dict[str, str] = {}
+    for nama in ("OPTIONS", "ANSWER", "WEIGHT"):
+        m = _BLOK_SOAL_RE[nama].search(teks_soal)
+        if m is not None:
+            ekstra[nama] = m.group(0)
+            teks_soal = (teks_soal[: m.start()] + teks_soal[m.end() :]).strip()
+    blok = [f"[QUESTION]{teks_soal.strip()}[/QUESTION]"]
+    for nama in ("OPTIONS", "ANSWER", "WEIGHT"):
+        if nama in ekstra:
+            blok.append(ekstra[nama])
+            continue
+        m = _BLOK_SOAL_RE[nama].search(gabungan)
+        if m is not None:
+            blok.append(m.group(0))
+    return "\n".join(blok)
+
+
+def normalisasi_format_kuis(teks: str) -> str:
+    """Perbaiki format kuis datar keluaran AI menjadi format kanonis.
+
+    - Soal [QUESTION] polos + saudara [OPTIONS]/[ANSWER]/[WEIGHT] di
+      level root [QUIZ] dibungkus menjadi [QUESTION n] ... [/QUESTION n].
+    - Semua pembungkus (lama & baru) dinomori ulang berurutan dari 1.
+    - Teks tanpa [QUIZ], atau yang sudah kanonis, dikembalikan apa adanya.
+    Tipe kuis TIDAK diubah — mismatch tipe adalah kesalahan isi, bukan
+    format, dan ditangani prompt + repair.
+    """
+    m = _QUIZ_SPAN_RE.search(teks)
+    if m is None:
+        return teks
+    segmen = _segmen_level_atas(m.group(1))
+    keluaran: list[str] = []
+    unit_datar: list[str] | None = None
+    nomor = 0
+    berubah = False
+
+    def tutup_unit() -> None:
+        nonlocal unit_datar, nomor, berubah
+        if unit_datar is not None:
+            isi = _urai_unit_datar(unit_datar)
+            if isi is not None:
+                nomor += 1
+                keluaran.append(f"[QUESTION {nomor}]\n{isi}\n[/QUESTION {nomor}]")
+                berubah = True
+            else:
+                keluaran.extend(unit_datar)
+            unit_datar = None
+
+    for seg in segmen:
+        s = seg.strip()
+        if _WRAPPER_RE.match(s):
+            tutup_unit()
+            nomor += 1
+            seg_baru = re.sub(r"\[QUESTION\s+\d+\]", f"[QUESTION {nomor}]", seg, count=1)
+            seg_baru = re.sub(r"\[/QUESTION\s+\d+\]", f"[/QUESTION {nomor}]", seg_baru, count=1)
+            if seg_baru != seg:
+                berubah = True
+            keluaran.append(seg_baru)
+        elif s.startswith("[QUESTION]"):
+            tutup_unit()
+            unit_datar = [seg]
+        elif unit_datar is not None and (
+            s.startswith("[OPTIONS]") or s.startswith("[ANSWER]") or s.startswith("[WEIGHT]")
+        ):
+            unit_datar.append(seg)
+        else:
+            tutup_unit()
+            keluaran.append(seg)
+    tutup_unit()
+    if not berubah:
+        return teks
+    return teks[: m.start(1)] + "".join(keluaran) + teks[m.end(1) :]
+
+
 def _raw_text(node) -> str:
     parts = []
     for child in node.children:

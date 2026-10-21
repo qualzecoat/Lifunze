@@ -38,7 +38,7 @@ from ..models import (
     User,
 )
 from ..notify import notify
-from ..tcml.quiz import parse_quiz_v2
+from ..tcml.quiz import normalisasi_format_kuis, parse_quiz_v2
 from .bank import _validate_category
 
 router = APIRouter(tags=["quizzes"])
@@ -70,7 +70,10 @@ def _subject_of_quiz(db: Session, quiz: Quiz):
 
 
 def _parse_or_400(teks: str, tipe: str) -> dict:
-    res = parse_quiz_v2(teks, expected_type=tipe)
+    # Format datar keluaran AI ([QUESTION] polos sebagai pembungkus)
+    # dinormalisasi dulu — kesalahan mekanis ini tidak perlu menggagalkan
+    # guru yang menempel hasil LLM eksternal.
+    res = parse_quiz_v2(normalisasi_format_kuis(teks), expected_type=tipe)
     if not res["success"]:
         raise HTTPException(
             status_code=400,
@@ -252,7 +255,7 @@ def create_quiz(
         meeting_id=meeting.id,
         judul=body.judul.strip(),
         tipe=body.tipe,
-        teks_mentah=body.teks_mentah,
+        teks_mentah=normalisasi_format_kuis(body.teks_mentah),
         dibuat_oleh=user.id,
     )
     _apply_settings(quiz, body)
@@ -397,7 +400,7 @@ def update_quiz(
         for q in _questions_of(db, quiz):
             db.delete(q)
         db.flush()
-        quiz.teks_mentah = body.teks_mentah
+        quiz.teks_mentah = normalisasi_format_kuis(body.teks_mentah)
         _create_questions(db, quiz, parsed["questions"])
 
     if body.judul is not None:

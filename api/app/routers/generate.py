@@ -49,7 +49,7 @@ from ..pedagogi import (
     narrowed_selection,
     resolve_pack,
 )
-from ..tcml.quiz import parse_quiz_v2
+from ..tcml.quiz import normalisasi_format_kuis, parse_quiz_v2
 from .materials import _parse_or_400 as _material_parse_or_400
 from .quizzes import _create_questions, _notify_quiz_baru
 from .quizzes import _parse_or_400 as _quiz_parse_or_400
@@ -589,6 +589,7 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
         teks = "\n".join(
             ln for ln in raw.splitlines() if not ln.strip().startswith("```")
         ).strip()
+        teks = normalisasi_format_kuis(teks)
         v = validate_bundle_document(db, pack, teks)
         d = ContentDraft(
             generation_job_id=job.id,
@@ -605,6 +606,7 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
         drafts.append(d)
     else:
         for teks in split_documents(raw):
+            teks = normalisasi_format_kuis(teks)
             v = validate_document(db, pack, body.kind, teks)
             d = ContentDraft(
                 generation_job_id=job.id,
@@ -658,9 +660,9 @@ def import_external(body: ImportIn, user: User = Depends(_staff), db: Session = 
         teks_bersih = "\n".join(
             ln for ln in body.teks.splitlines() if not ln.strip().startswith("```")
         ).strip()
-        docs = [teks_bersih] if teks_bersih else []
+        docs = [normalisasi_format_kuis(teks_bersih)] if teks_bersih else []
     else:
-        docs = split_documents(body.teks)
+        docs = [normalisasi_format_kuis(t) for t in split_documents(body.teks)]
     if not docs:
         raise HTTPException(
             status_code=400,
@@ -759,13 +761,21 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
     job = db.get(GenerationJob, d.generation_job_id) if d.generation_job_id else None
     pack = db.get(ParserPack, job.pack_id) if job and job.pack_id else None
     setting = _resolve_setting(db, user, job.ai_setting_id if job else None)
-    kind = (
-        "dokumen"
-        if d.jenis == "dokumen"
-        else "materi"
-        if d.jenis == "material"
-        else ("kuis_pg" if d.tipe_quiz == "pilihan_ganda" else "kuis_esai")
-    )
+    # Jenis target diambil dari PERMINTAAN AWAL di brief job — BUKAN dari
+    # tipe yang terdeteksi pada draf rusak. Dulu: draf kuis esai yang
+    # terlanjur berisi PG membuat repair mengejar PG, lalu validasi esai
+    # menolaknya lagi (mismatch bolak-balik, tidak pernah konvergen).
+    kind_job = (job.brief or {}).get("kind") if job else None
+    if kind_job in ("materi", "kuis_pg", "kuis_esai", "dokumen"):
+        kind = kind_job
+    else:
+        kind = (
+            "dokumen"
+            if d.jenis == "dokumen"
+            else "materi"
+            if d.jenis == "material"
+            else ("kuis_pg" if d.tipe_quiz == "pilihan_ganda" else "kuis_esai")
+        )
     system_prompt = (
         build_system_prompt(db, pack, kind)
         if pack is not None
@@ -784,6 +794,19 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
         penutup = (
             "Perbaiki dokumen tersebut. Keluarkan HANYA satu dokumen TCML yang sudah diperbaiki, "
             "tanpa penjelasan apa pun."
+        )
+    if kind == "kuis_pg":
+        penutup += (
+            " PENTING: hasil akhir WAJIB kuis pilihan ganda — baris [TYPE]pilihan_ganda[/TYPE], "
+            "setiap soal dibungkus [QUESTION n]...[/QUESTION n] dan punya [OPTIONS] + [ANSWER]. "
+            "Bila dokumen lama bertipe lain, KONVERSI seluruhnya ke pilihan ganda."
+        )
+    elif kind == "kuis_esai":
+        penutup += (
+            " PENTING: hasil akhir WAJIB kuis esai/teks — baris [TYPE]essay[/TYPE], setiap soal "
+            "dibungkus [QUESTION n]...[/QUESTION n] TANPA [OPTIONS], dan [ANSWER] berisi jawaban "
+            "referensi singkat. Bila dokumen lama pilihan ganda, KONVERSI seluruhnya: buang semua "
+            "[OPTIONS] dan tulis ulang [ANSWER] sebagai referensi (bukan huruf kunci)."
         )
     user_prompt = (
         "Dokumen TCML berikut GAGAL validasi dengan error:\n"
@@ -807,6 +830,7 @@ def repair_draft(draft_id: int, user: User = Depends(_staff), db: Session = Depe
     else:
         docs = split_documents(raw)
         new_text = docs[0] if docs else raw.strip()
+    new_text = normalisasi_format_kuis(new_text)
     if pack is not None:
         if kind == "dokumen":
             v = validate_bundle_document(db, pack, new_text)
