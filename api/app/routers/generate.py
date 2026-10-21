@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..access import get_meeting, get_subject, require_subject_manage
+from ..ai_akses import resolusi_setting
 from ..ai_client import ProviderError, chat_completion
 from ..db import get_db
 from ..deps import get_current_user, require_csrf, write_audit
@@ -124,19 +125,10 @@ def _tolak_sudah_final(d: ContentDraft) -> None:
 
 
 def _resolve_setting(db: Session, user: User, setting_id: Optional[int]) -> AiSetting:
-    q = db.query(AiSetting).filter(AiSetting.user_id == user.id)
-    if setting_id is not None:
-        s = q.filter(AiSetting.id == setting_id).first()
-        if s is None:
-            raise HTTPException(status_code=404, detail="Pengaturan AI tidak ditemukan.")
-        return s
-    s = q.filter(AiSetting.is_default.is_(True)).first() or q.first()
-    if s is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Anda belum punya Pengaturan AI. Buat dulu di menu Pengaturan AI (base URL, API key, model).",
-        )
-    return s
+    # Resolusi terpusat di ai_akses: milik sendiri didahulukan; pengaturan
+    # yang DIBAGIKAN admin (semua/whitelist/blacklist) menjadi cadangan
+    # dan bisa dipilih eksplisit via ai_setting_id.
+    return resolusi_setting(db, user, setting_id)
 
 
 KEPADATAN_CEK = {"jarang": 2, "sedang": 4, "padat": 6}

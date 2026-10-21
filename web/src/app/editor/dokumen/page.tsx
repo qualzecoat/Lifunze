@@ -384,6 +384,8 @@ interface SettingRingkas {
   nama: string;
   model: string | null;
   is_default: boolean;
+  milik_saya?: boolean;
+  pemilik?: string | null;
 }
 interface DrafAI {
   id: number;
@@ -1371,9 +1373,9 @@ function EditorDokumenInner() {
             <div>
               <label className="label">Pengaturan AI</label>
               <select className="select" value={aiSetting} onChange={(e) => setAiSetting(e.target.value)}>
-                <option value="">Otomatis (default saya)</option>
+                <option value="">Otomatis (default saya / dari admin)</option>
                 {aiSettings.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nama} — {s.model ?? "?"}{s.is_default ? " (default)" : ""}</option>
+                  <option key={s.id} value={s.id}>{s.nama} — {s.model ?? "?"}{s.is_default && s.milik_saya !== false ? " (default)" : ""}{s.milik_saya === false ? ` (🌐 dari ${s.pemilik ?? "admin"})` : ""}</option>
                 ))}
               </select>
             </div>

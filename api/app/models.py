@@ -98,6 +98,21 @@ class AiSetting(Base, TimestampMixin):
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[Optional[str]] = mapped_column(String(200))
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Distribusi oleh ADMIN (2026-10-21): pengaturan admin bisa menjadi
+    # default cadangan bagi akun guru lain. Mode: "tidak" (pribadi) |
+    # "semua" | "whitelist" (hanya target) | "blacklist" (semua kecuali
+    # target). Target disimpan di ai_setting_targets. Hanya pengaturan
+    # milik admin yang boleh dibagikan; kunci tidak pernah terekspos.
+    dibagikan_mode: Mapped[str] = mapped_column(String(20), default="tidak")
+
+
+class AiSettingTarget(Base):
+    __tablename__ = "ai_setting_targets"
+    __table_args__ = (UniqueConstraint("setting_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    setting_id: Mapped[int] = mapped_column(ForeignKey("ai_settings.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
 
 
 # ---------------------------------------------------------------- 5.3 Pembelajaran

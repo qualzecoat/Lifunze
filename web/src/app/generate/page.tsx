@@ -19,6 +19,8 @@ interface Setting {
   nama: string;
   model: string | null;
   is_default: boolean;
+  milik_saya?: boolean;
+  pemilik?: string | null;
 }
 interface Draft {
   id: number;
@@ -367,9 +369,9 @@ export default function GeneratePage() {
           <div>
             <label className="label">Pengaturan AI</label>
             <select className="select" value={settingId} onChange={(e) => setSettingId(e.target.value)}>
-              <option value="">Otomatis (default saya)</option>
+              <option value="">Otomatis (default saya / dari admin)</option>
               {settings.map((s) => (
-                <option key={s.id} value={s.id}>{s.nama} — {s.model ?? "?"}{s.is_default ? " (default)" : ""}</option>
+                <option key={s.id} value={s.id}>{s.nama} — {s.model ?? "?"}{s.is_default && s.milik_saya !== false ? " (default)" : ""}{s.milik_saya === false ? ` (🌐 dari ${s.pemilik ?? "admin"})` : ""}</option>
               ))}
             </select>
           </div>

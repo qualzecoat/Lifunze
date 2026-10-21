@@ -12,7 +12,53 @@ interface Setting {
   base_url: string;
   model: string | null;
   is_default: boolean;
-  api_key_masked: string;
+  api_key_masked: string | null;
+  milik_saya: boolean;
+  pemilik: string | null;
+  dibagikan_mode: string;
+  target_ids: number[];
+}
+
+interface Penerima {
+  id: number;
+  username: string;
+  nama: string;
+  role: string;
+}
+
+const MODE_BAGI: { nilai: string; label: string }[] = [
+  { nilai: "tidak", label: "Tidak dibagikan (hanya saya)" },
+  { nilai: "semua", label: "🌐 Semua akun guru & admin" },
+  { nilai: "whitelist", label: "🎯 Hanya akun terpilih" },
+  { nilai: "blacklist", label: "🚫 Semua, kecuali akun terpilih" },
+];
+
+function DaftarAkun({
+  penerima,
+  dipilih,
+  onToggle,
+}: {
+  penerima: Penerima[];
+  dipilih: number[];
+  onToggle: (id: number) => void;
+}) {
+  if (penerima.length === 0) return <p className="muted">Belum ada akun guru/admin lain.</p>;
+  return (
+    <div style={{ display: "grid", gap: 4, maxHeight: 180, overflowY: "auto", margin: "6px 0" }}>
+      {penerima.map((p) => (
+        <label key={p.id} className="check-row">
+          <input
+            type="checkbox"
+            checked={dipilih.includes(p.id)}
+            onChange={() => onToggle(p.id)}
+          />
+          <span>
+            {p.nama} <span className="muted">(@{p.username} · {p.role})</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
 }
 
 export default function PengaturanAiPage() {
@@ -26,6 +72,12 @@ export default function PengaturanAiPage() {
   const [formModels, setFormModels] = useState<string[]>([]);
   const [itemModels, setItemModels] = useState<Record<number, string[]>>({});
   const [itemModelSel, setItemModelSel] = useState<Record<number, string>>({});
+  const [penerima, setPenerima] = useState<Penerima[]>([]);
+  const [formBagi, setFormBagi] = useState<{ mode: string; targets: number[] }>({
+    mode: "tidak",
+    targets: [],
+  });
+  const [bagiDraft, setBagiDraft] = useState<Record<number, { mode: string; targets: number[] }>>({});
   type TabKey = "koneksi" | "baru";
   const [tab, setTab] = useState<TabKey>("koneksi");
 
@@ -46,6 +98,11 @@ export default function PengaturanAiPage() {
         const awal = new URLSearchParams(window.location.search).get("tab");
         if (awal && ["koneksi", "baru"].includes(awal)) setTab(awal as TabKey);
         load();
+        if (u.role === "admin") {
+          apiFetch<Penerima[]>("/api/v1/ai/settings/recipients")
+            .then(setPenerima)
+            .catch(() => setPenerima([]));
+        }
       }
     });
   }, [router, load]);
@@ -89,15 +146,52 @@ export default function PengaturanAiPage() {
     try {
       await apiFetch("/api/v1/ai/settings", {
         method: "POST",
-        body: { ...form, model: form.model || null },
+        body: {
+          ...form,
+          model: form.model || null,
+          ...(user?.role === "admin"
+            ? { dibagikan_mode: formBagi.mode, target_ids: formBagi.targets }
+            : {}),
+        },
       });
       setOk("Koneksi AI ditambahkan.");
       setForm({ nama: "", base_url: "", api_key: "", model: "" });
       setFormModels([]);
+      setFormBagi({ mode: "tidak", targets: [] });
       load();
       gantiTab("koneksi");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan koneksi.");
+    }
+  }
+
+  function toggleTarget(
+    ambil: () => { mode: string; targets: number[] },
+    simpan: (v: { mode: string; targets: number[] }) => void,
+    id: number,
+  ) {
+    const cur = ambil();
+    simpan({
+      ...cur,
+      targets: cur.targets.includes(id)
+        ? cur.targets.filter((t) => t !== id)
+        : [...cur.targets, id],
+    });
+  }
+
+  async function simpanBagi(s: Setting) {
+    const d = bagiDraft[s.id] ?? { mode: s.dibagikan_mode, targets: s.target_ids };
+    setError("");
+    setOk("");
+    try {
+      await apiFetch(`/api/v1/ai/settings/${s.id}`, {
+        method: "PATCH",
+        body: { dibagikan_mode: d.mode, target_ids: d.targets },
+      });
+      setOk(`Pengaturan berbagi ${s.nama} disimpan.`);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan pengaturan berbagi.");
     }
   }
 
@@ -205,25 +299,64 @@ export default function PengaturanAiPage() {
             {busy === "form-fetch" ? "..." : "🔄 Ambil Daftar Model"}
           </button>
         </div>
+        {user.role === "admin" && (
+          <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <label className="label">🌐 Bagikan sebagai default untuk akun lain (khusus admin)</label>
+            <select
+              className="select"
+              value={formBagi.mode}
+              onChange={(e) => setFormBagi({ ...formBagi, mode: e.target.value })}
+            >
+              {MODE_BAGI.map((m) => (
+                <option key={m.nilai} value={m.nilai}>{m.label}</option>
+              ))}
+            </select>
+            {(formBagi.mode === "whitelist" || formBagi.mode === "blacklist") && (
+              <DaftarAkun
+                penerima={penerima}
+                dipilih={formBagi.targets}
+                onToggle={(id) => toggleTarget(() => formBagi, setFormBagi, id)}
+              />
+            )}
+            <p className="muted" style={{ marginTop: 6 }}>
+              Koneksi yang dibagikan menjadi cadangan otomatis bagi akun yang belum punya koneksi
+              sendiri — kunci Anda tidak pernah ditampilkan ke mereka.
+            </p>
+          </div>
+        )}
         <button className="btn btn-primary" type="submit" style={{ marginTop: 16 }}>Simpan Koneksi</button>
       </form>
       </div>
 
       <div style={{ display: tab === "koneksi" ? undefined : "none" }}>
       <div style={{ display: "grid", gap: 12 }}>
-        {settings.map((s) => (
+        {settings.map((s) => {
+          const bagi = bagiDraft[s.id] ?? { mode: s.dibagikan_mode, targets: s.target_ids };
+          return (
           <div className="card" key={s.id}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <h3>
-                {s.nama} {s.is_default && <span className="badge">default</span>}
+                {s.nama} {s.is_default && s.milik_saya && <span className="badge">default</span>}
+                {!s.milik_saya && <span className="badge">🌐 dari {s.pemilik ?? "admin"}</span>}
+                {s.milik_saya && s.dibagikan_mode !== "tidak" && (
+                  <span className="badge">🌐 dibagikan</span>
+                )}
               </h3>
-              <span className="muted">key: {s.api_key_masked}</span>
+              <span className="muted">
+                {s.milik_saya ? `key: ${s.api_key_masked}` : "key: dikelola admin"}
+              </span>
             </div>
             <p className="muted">{s.base_url}</p>
             <p style={{ margin: "6px 0" }}>
               Model: <strong>{s.model ?? "(belum dipilih)"}</strong>
             </p>
-            {itemModels[s.id] && (
+            {!s.milik_saya && (
+              <p className="muted">
+                Koneksi ini dibagikan oleh admin dan dipakai otomatis bila Anda belum punya
+                koneksi sendiri (atau dipilih manual di halaman Generate). Tidak dapat diubah dari sini.
+              </p>
+            )}
+            {s.milik_saya && itemModels[s.id] && (
               <div style={{ display: "flex", gap: 8, margin: "8px 0" }}>
                 <select
                   className="select"
@@ -237,6 +370,42 @@ export default function PengaturanAiPage() {
                 <button className="btn btn-sm" onClick={() => saveItemModel(s)}>Simpan Model</button>
               </div>
             )}
+            {s.milik_saya && user.role === "admin" && (
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                <label className="label">🌐 Dibagikan ke akun lain sebagai default cadangan</label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <select
+                    className="select"
+                    value={bagi.mode}
+                    onChange={(e) =>
+                      setBagiDraft((prev) => ({
+                        ...prev,
+                        [s.id]: { ...bagi, mode: e.target.value },
+                      }))
+                    }
+                  >
+                    {MODE_BAGI.map((m) => (
+                      <option key={m.nilai} value={m.nilai}>{m.label}</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-sm" onClick={() => simpanBagi(s)}>Simpan Berbagi</button>
+                </div>
+                {(bagi.mode === "whitelist" || bagi.mode === "blacklist") && (
+                  <DaftarAkun
+                    penerima={penerima}
+                    dipilih={bagi.targets}
+                    onToggle={(id) =>
+                      toggleTarget(
+                        () => bagiDraft[s.id] ?? { mode: s.dibagikan_mode, targets: s.target_ids },
+                        (v) => setBagiDraft((prev) => ({ ...prev, [s.id]: v })),
+                        id,
+                      )
+                    }
+                  />
+                )}
+              </div>
+            )}
+            {s.milik_saya && (
             <div className="row-actions" style={{ marginTop: 8 }}>
               <button className="btn btn-sm" onClick={() => fetchItemModels(s)} disabled={busy === `fetch-${s.id}`}>
                 {busy === `fetch-${s.id}` ? "..." : "🔄 Ambil Model"}
@@ -249,8 +418,10 @@ export default function PengaturanAiPage() {
               )}
               <button className="btn btn-sm btn-danger" onClick={() => remove(s)}>Hapus</button>
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
         {settings.length === 0 && <p className="muted">Belum ada koneksi AI. Tambahkan lewat tab Koneksi Baru.</p>}
       </div>
       </div>

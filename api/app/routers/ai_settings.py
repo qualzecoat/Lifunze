@@ -13,14 +13,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..ai_akses import MODE_BAGI, PERAN_BOLEH, daftar_tersedia, target_ids
 from ..db import get_db
 from ..deps import require_csrf, require_roles
-from ..models import AiSetting, User
+from ..models import AiSetting, AiSettingTarget, User
 from ..security import decrypt_secret, encrypt_secret, mask_secret
 from ..url_safety import UnsafeUrlError, assert_public_target, normalize_ai_base_url
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
 guru_admin = require_roles("guru", "admin")
+admin_saja = require_roles("admin")
 
 HTTP_TIMEOUT = 20.0
 
@@ -30,11 +32,17 @@ def http_client() -> httpx.Client:
     return httpx.Client(timeout=HTTP_TIMEOUT)
 
 
-def setting_out(s: AiSetting) -> dict:
-    try:
-        masked = mask_secret(decrypt_secret(s.api_key_encrypted))
-    except RuntimeError:
-        masked = "(tidak bisa dibaca)"
+def setting_out(db: Session, s: AiSetting, viewer: User | None = None) -> dict:
+    milik_saya = viewer is None or viewer.id == s.user_id
+    if milik_saya:
+        try:
+            masked = mask_secret(decrypt_secret(s.api_key_encrypted))
+        except RuntimeError:
+            masked = "(tidak bisa dibaca)"
+    else:
+        # Penerima pengaturan bersama TIDAK melihat topeng kunci admin.
+        masked = None
+    pemilik = db.get(User, s.user_id) if not milik_saya else None
     return {
         "id": s.id,
         "nama": s.nama,
@@ -42,9 +50,52 @@ def setting_out(s: AiSetting) -> dict:
         "model": s.model,
         "is_default": s.is_default,
         "api_key_masked": masked,
+        "milik_saya": milik_saya,
+        "pemilik": (pemilik.nama_lengkap or pemilik.username) if pemilik else None,
+        "dibagikan_mode": s.dibagikan_mode or "tidak",
+        "target_ids": target_ids(db, s.id) if milik_saya else [],
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+
+
+def _terapkan_distribusi(
+    db: Session,
+    user: User,
+    s: AiSetting,
+    mode: str | None,
+    targets: list[int] | None,
+) -> None:
+    """Atur mode berbagi + daftar target sebuah pengaturan (khusus admin)."""
+    if user.role != "admin":
+        if (mode is not None and mode != "tidak") or targets:
+            raise HTTPException(
+                status_code=400,
+                detail="Hanya admin yang dapat membagikan Pengaturan AI ke akun lain.",
+            )
+        return
+    mode_baru = mode if mode is not None else (s.dibagikan_mode or "tidak")
+    if mode_baru not in MODE_BAGI:
+        raise HTTPException(status_code=400, detail=f"Mode berbagi tidak dikenal: {mode_baru}.")
+    s.dibagikan_mode = mode_baru
+    if targets is not None:
+        valid = {
+            u.id
+            for u in db.query(User)
+            .filter(User.role.in_(PERAN_BOLEH), User.id != user.id)
+            .all()
+        }
+        asing = [i for i in targets if i not in valid]
+        if asing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Akun target tidak valid (harus guru/admin lain): {asing}.",
+            )
+        db.query(AiSettingTarget).filter(AiSettingTarget.setting_id == s.id).delete(
+            synchronize_session=False
+        )
+        for uid in dict.fromkeys(targets):
+            db.add(AiSettingTarget(setting_id=s.id, user_id=uid))
 
 
 def _base_atau_400(raw: str) -> str:
@@ -82,6 +133,8 @@ class SettingIn(BaseModel):
     api_key: str = Field(min_length=1)
     model: Optional[str] = None
     is_default: bool = False
+    dibagikan_mode: str = "tidak"  # khusus admin: tidak|semua|whitelist|blacklist
+    target_ids: list[int] = []
 
 
 class SettingPatchIn(BaseModel):
@@ -90,6 +143,28 @@ class SettingPatchIn(BaseModel):
     api_key: Optional[str] = None  # kosong/None = tidak diubah
     model: Optional[str] = None
     is_default: Optional[bool] = None
+    dibagikan_mode: Optional[str] = None
+    target_ids: Optional[list[int]] = None
+
+
+@router.get("/settings/recipients")
+def list_recipients(user: User = Depends(admin_saja), db: Session = Depends(get_db)):
+    """Daftar akun yang bisa menjadi target whitelist/blacklist admin."""
+    rows = (
+        db.query(User)
+        .filter(User.role.in_(PERAN_BOLEH), User.id != user.id)
+        .order_by(User.role, User.nama_lengkap, User.username)
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "nama": u.nama_lengkap or u.username,
+            "role": u.role,
+        }
+        for u in rows
+    ]
 
 
 @router.get("/settings")
@@ -100,7 +175,8 @@ def list_settings(user: User = Depends(guru_admin), db: Session = Depends(get_db
         .order_by(AiSetting.is_default.desc(), AiSetting.nama)
         .all()
     )
-    return [setting_out(s) for s in rows]
+    bersama = [s for s in daftar_tersedia(db, user) if s.user_id != user.id]
+    return [setting_out(db, s, user) for s in rows + bersama]
 
 
 @router.post("/settings", status_code=201, dependencies=[Depends(require_csrf)])
@@ -119,11 +195,12 @@ def create_setting(
     )
     db.add(s)
     db.flush()
+    _terapkan_distribusi(db, user, s, body.dibagikan_mode, body.target_ids)
     if body.is_default or db.query(AiSetting).filter(AiSetting.user_id == user.id).count() == 1:
         _apply_default(db, user, s)
     db.commit()
     db.refresh(s)
-    return setting_out(s)
+    return setting_out(db, s, user)
 
 
 @router.patch("/settings/{setting_id}", dependencies=[Depends(require_csrf)])
@@ -144,9 +221,10 @@ def update_setting(
         s.model = body.model.strip() or None
     if body.is_default:
         _apply_default(db, user, s)
+    _terapkan_distribusi(db, user, s, body.dibagikan_mode, body.target_ids)
     db.commit()
     db.refresh(s)
-    return setting_out(s)
+    return setting_out(db, s, user)
 
 
 @router.delete("/settings/{setting_id}", dependencies=[Depends(require_csrf)])
@@ -162,6 +240,9 @@ def delete_setting(
 
     db.query(GenerationJob).filter(GenerationJob.ai_setting_id == s.id).update(
         {GenerationJob.ai_setting_id: None}, synchronize_session=False
+    )
+    db.query(AiSettingTarget).filter(AiSettingTarget.setting_id == s.id).delete(
+        synchronize_session=False
     )
     db.delete(s)
     db.commit()
