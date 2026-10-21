@@ -75,8 +75,12 @@ def _get_accessible_pack(db: Session, user: User, pack_id: int) -> ParserPack:
 
 
 def _get_owned_pack(db: Session, user: User, pack_id: int) -> ParserPack:
+    """Paket untuk operasi MUTASI (ubah/bagikan/hapus) — keputusan produk
+    D1 (2026-10-21, dari audit): owner-only, sesuai aturan terdokumentasi.
+    Admin tetap bisa MELIHAT semua paket (can_access_pack) untuk keperluan
+    pengawasan, tapi tidak mengubah/membagikan/menghapus milik guru lain."""
     pack = _get_pack(db, pack_id)
-    if pack.dibuat_oleh != user.id and user.role != "admin":
+    if pack.dibuat_oleh != user.id:
         raise HTTPException(status_code=403, detail="Hanya pemilik paket yang boleh mengubahnya.")
     return pack
 

@@ -75,6 +75,7 @@ interface Submission {
   catatan: string | null;
   skor: number | null;
   feedback_rubrik: { items?: RubrikItem[] } | null;
+  terlambat?: boolean;
   updated_at: string | null;
 }
 
@@ -276,7 +277,8 @@ export default function MateriPage() {
           </div>
           {material.jenis === "tugas" && material.tenggat && (
             <p style={{ marginTop: 10 }}>
-              <span className="badge">⏰ Tenggat pengumpulan: {new Date(material.tenggat).toLocaleString("id-ID")}</span>
+              <span className="badge">⏰ Tenggat pengumpulan: {new Date(material.tenggat).toLocaleString("id-ID")}</span>{" "}
+              <span className="muted">Lewat tenggat tetap bisa mengumpulkan — akan ditandai Terlambat.</span>
             </p>
           )}
           {material.dokumen_kuis && material.dokumen_kuis.length > 0 && (
@@ -423,7 +425,12 @@ function SubmissionPanel({ materialId, user, kelola }: { materialId: number; use
                 <a href={`${API_BASE}/api/v1/submissions/${mine.id}/download`} target="_blank" rel="noreferrer">
                   {mine.nama_file}
                 </a>{" "}
-                <span className="muted">({mine.updated_at ? new Date(mine.updated_at).toLocaleString("id-ID") : ""})</span>
+                <span className="muted">({mine.updated_at ? new Date(mine.updated_at).toLocaleString("id-ID") : ""})</span>{" "}
+                {mine.terlambat && (
+                  <span className="badge" style={{ background: "#FEF2F2", color: "var(--danger)", border: "1px solid var(--danger)" }}>
+                    ⏰ Terlambat
+                  </span>
+                )}
               </p>
               {mine.skor !== null ? (
                 <div style={{ marginTop: 6 }}>
@@ -467,6 +474,14 @@ function SubmissionPanel({ materialId, user, kelola }: { materialId: number; use
                 <span>
                   <strong>{s.siswa?.nama_lengkap ?? s.siswa?.username}</strong> —{" "}
                   <a href={`${API_BASE}/api/v1/submissions/${s.id}/download`} target="_blank" rel="noreferrer">{s.nama_file}</a>
+                  {s.terlambat && (
+                    <>
+                      {" "}
+                      <span className="badge" style={{ background: "#FEF2F2", color: "var(--danger)", border: "1px solid var(--danger)" }}>
+                        ⏰ Terlambat
+                      </span>
+                    </>
+                  )}
                   {s.catatan && <span className="muted"> · “{s.catatan}”</span>}
                 </span>
                 <span className="row-actions">

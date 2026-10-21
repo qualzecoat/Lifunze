@@ -373,6 +373,25 @@ def _is_project(material: Material) -> bool:
     return re.search(r"^\s*\[PROJECT\]", material.teks_mentah or "", re.MULTILINE) is not None
 
 
+def _terlambat(db: Session, s: Submission) -> bool:
+    """Keputusan produk D3 (2026-10-21, dari audit): tenggat Tugas bersifat
+    LUNAK — pengumpulan lewat tenggat tetap diterima, tetapi ditandai
+    terlambat. Penanda dihitung dari waktu pengumpulan terakhir
+    (updated_at: mengumpulkan ulang sesudah tenggat = versi finalnya
+    terlambat) dibandingkan tenggat materi."""
+    material = db.get(Material, s.material_id)
+    if material is None or not material.tenggat:
+        return False
+    waktu = s.updated_at or s.created_at
+    if waktu is None:
+        return False
+
+    def _utc(dt: datetime) -> datetime:
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    return _utc(waktu) > _utc(material.tenggat)
+
+
 def _submission_out(db: Session, s: Submission) -> dict:
     siswa = db.get(User, s.siswa_id)
     filename = os.path.basename(s.storage_key)
@@ -390,6 +409,7 @@ def _submission_out(db: Session, s: Submission) -> dict:
         "skor": s.skor,
         "feedback_rubrik": s.feedback_rubrik,
         "dinilai_oleh": s.dinilai_oleh,
+        "terlambat": _terlambat(db, s),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }

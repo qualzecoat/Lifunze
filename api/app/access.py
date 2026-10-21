@@ -49,6 +49,15 @@ def can_manage_subject(user: User, subject: Subject) -> bool:
 def require_subject_view(db: Session, user: User, subject: Subject) -> None:
     if can_manage_subject(user, subject):
         return
+    # Keputusan produk D2 (2026-10-21, dari audit): kelas yang diarsipkan
+    # TERTUTUP untuk siswa — bukan hanya hilang dari daftar. Pengelola
+    # (guru pemilik/admin) tetap bisa membuka untuk mengelola atau
+    # mengeluarkan kelas dari arsip.
+    if subject.is_archived:
+        raise HTTPException(
+            status_code=403,
+            detail="Kelas ini sudah diarsipkan dan tidak dapat diakses lagi. Hubungi guru Anda bila ini keliru.",
+        )
     if user.role == "siswa" and is_enrolled(db, user.id, subject.id):
         return
     raise HTTPException(status_code=403, detail="Anda tidak memiliki akses ke mata pelajaran ini.")
