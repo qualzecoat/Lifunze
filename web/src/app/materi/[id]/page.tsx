@@ -100,7 +100,11 @@ export default function MateriPage() {
       return;
     }
     setSkorCek(material.cek?.skor ?? null);
-    setCekSlots(Array.from(articleRef.current.querySelectorAll<HTMLElement>("[data-cek-index]")));
+    const found = Array.from(articleRef.current.querySelectorAll<HTMLElement>("[data-cek-index]"));
+    // Placeholder renderer hanya penanda posisi; kosongkan teksnya agar
+    // tidak dobel dengan judul panel interaktif yang dipasang via portal.
+    found.forEach((el) => el.replaceChildren());
+    setCekSlots(found);
   }, [material]);
 
   const load = useCallback(async () => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import MaterialPreview, { type MaterialPreviewCek } from "@/components/MaterialPreview";
 import TabsBar from "@/components/TabsBar";
 import { API_BASE, apiFetch, getMe, type User } from "@/lib/api";
 
@@ -53,7 +54,10 @@ interface ParsedQ {
 type Selection = Record<string, string[]>;
 
 /* ---------------------------------- render contoh hidup (parse asli) */
-const contohCache = new Map<string, Promise<{ html?: string; questions?: ParsedQ[]; gagal?: boolean }>>();
+const contohCache = new Map<
+  string,
+  Promise<{ html?: string; cek?: MaterialPreviewCek[]; questions?: ParsedQ[]; gagal?: boolean }>
+>();
 
 function ambilContoh(jenis: string, konten: string) {
   const kunci = jenis + "::" + konten;
@@ -62,11 +66,17 @@ function ambilContoh(jenis: string, konten: string) {
     p = (async () => {
       try {
         if (jenis === "material") {
-          const res = await apiFetch<{ success: boolean; content: string | null }>(
+          const res = await apiFetch<{
+            success: boolean;
+            content: string | null;
+            cek?: MaterialPreviewCek[];
+          }>(
             "/api/v1/parse/content",
             { method: "POST", body: { teks: konten, jenis: "material" } },
           );
-          return res.success ? { html: res.content ?? "" } : { gagal: true };
+          return res.success
+            ? { html: res.content ?? "", cek: res.cek ?? [] }
+            : { gagal: true };
         }
         const res = await apiFetch<{ success: boolean; content: { questions: ParsedQ[] } | null }>(
           "/api/v1/parse/quiz",
@@ -83,7 +93,12 @@ function ambilContoh(jenis: string, konten: string) {
 }
 
 function ContohRender({ jenis, konten }: { jenis: string; konten: string }) {
-  const [state, setState] = useState<{ html?: string; questions?: ParsedQ[]; gagal?: boolean } | null>(null);
+  const [state, setState] = useState<{
+    html?: string;
+    cek?: MaterialPreviewCek[];
+    questions?: ParsedQ[];
+    gagal?: boolean;
+  } | null>(null);
   useEffect(() => {
     let hidup = true;
     setState(null);
@@ -98,7 +113,7 @@ function ContohRender({ jenis, konten }: { jenis: string; konten: string }) {
   if (!state) return <p className="muted">Memuat contoh…</p>;
   if (state.gagal) return <p className="muted">Contoh tidak dapat dirender.</p>;
   if (state.html !== undefined) {
-    return <article className="tcml" dangerouslySetInnerHTML={{ __html: state.html }} />;
+    return <MaterialPreview html={state.html} cek={state.cek ?? []} className="tcml" />;
   }
   return (
     <div>

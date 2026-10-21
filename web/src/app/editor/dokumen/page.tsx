@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import MaterialPreview, { type MaterialPreviewCek } from "@/components/MaterialPreview";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface TcmlError {
@@ -410,6 +411,7 @@ function EditorDokumenInner() {
   const [teksMateri, setTeksMateri] = useState("");
   const [noticeMateri, setNoticeMateri] = useState("");
   const [previewHtml, setPreviewHtml] = useState("");
+  const [previewCek, setPreviewCek] = useState<MaterialPreviewCek[]>([]);
   const [errorsMateri, setErrorsMateri] = useState<TcmlError[]>([]);
 
   // Bagian kuis
@@ -459,19 +461,27 @@ function EditorDokumenInner() {
   const runPreviewMateri = useCallback(async (value: string) => {
     if (!value.trim()) {
       setPreviewHtml("");
+      setPreviewCek([]);
       setErrorsMateri([]);
       return;
     }
     try {
-      const res = await apiFetch<{ success: boolean; content: string | null; errors: TcmlError[] }>(
+      const res = await apiFetch<{
+        success: boolean;
+        content: string | null;
+        errors: TcmlError[];
+        cek?: MaterialPreviewCek[];
+      }>(
         "/api/v1/parse/content",
         { method: "POST", body: { teks: value, jenis: "material" } },
       );
       if (res.success) {
         setPreviewHtml(res.content ?? "");
+        setPreviewCek(res.cek ?? []);
         setErrorsMateri([]);
       } else {
         setPreviewHtml("");
+        setPreviewCek([]);
         setErrorsMateri(res.errors ?? []);
       }
     } catch { /* diam */ }
@@ -1376,7 +1386,7 @@ function EditorDokumenInner() {
                 <button type="button" className="btn btn-sm" onClick={() => runPreviewMateri(teksMateri)}>🔄 Refresh</button>
               </div>
               {previewHtml ? (
-                <article className="card tcml" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                <MaterialPreview html={previewHtml} cek={previewCek} className="card tcml" />
               ) : (
                 <div className="card"><p className="muted">Pratinjau muncul setelah teks valid.</p></div>
               )}

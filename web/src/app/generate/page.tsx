@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import MaterialPreview, { type MaterialPreviewCek } from "@/components/MaterialPreview";
 import TabsBar from "@/components/TabsBar";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
@@ -535,8 +536,13 @@ function pecahDokumenTeks(teks: string): { materi: string | null; kuis: { teks: 
 /** Pratinjau render draf — guru meninjau hasil jadi (bukan teks TCML mentah). */
 function DraftPreview({ draft }: { draft: Draft }) {
   const [html, setHtml] = useState<string | null>(null);
+  const [cek, setCek] = useState<MaterialPreviewCek[]>([]);
   const [quiz, setQuiz] = useState<QuizPreview | null>(null);
-  const [dokumen, setDokumen] = useState<{ html: string | null; kuis: QuizPreview[] } | null>(null);
+  const [dokumen, setDokumen] = useState<{
+    html: string | null;
+    cek: MaterialPreviewCek[];
+    kuis: QuizPreview[];
+  } | null>(null);
   const [gagal, setGagal] = useState("");
 
   useEffect(() => {
@@ -546,12 +552,18 @@ function DraftPreview({ draft }: { draft: Draft }) {
         if (draft.jenis === "dokumen") {
           const bagian = pecahDokumenTeks(draft.teks_mentah);
           let htmlBagian: string | null = null;
+          let cekBagian: MaterialPreviewCek[] = [];
           if (bagian.materi) {
-            const r = await apiFetch<{ success: boolean; content: string }>(
+            const r = await apiFetch<{
+              success: boolean;
+              content: string;
+              cek?: MaterialPreviewCek[];
+            }>(
               "/api/v1/parse/content",
               { method: "POST", body: { teks: bagian.materi, jenis: "material" } },
             );
             htmlBagian = r.content;
+            cekBagian = r.cek ?? [];
           }
           const kuisBagian: QuizPreview[] = [];
           for (const k of bagian.kuis) {
@@ -561,7 +573,7 @@ function DraftPreview({ draft }: { draft: Draft }) {
             );
             if (r.content) kuisBagian.push(r.content);
           }
-          if (hidup) setDokumen({ html: htmlBagian, kuis: kuisBagian });
+          if (hidup) setDokumen({ html: htmlBagian, cek: cekBagian, kuis: kuisBagian });
         } else if (draft.jenis === "quiz") {
           const r = await apiFetch<{ success: boolean; content: QuizPreview }>(
             "/api/v1/parse/quiz",
@@ -575,11 +587,18 @@ function DraftPreview({ draft }: { draft: Draft }) {
           );
           if (hidup) setQuiz(r.content);
         } else {
-          const r = await apiFetch<{ success: boolean; content: string }>(
+          const r = await apiFetch<{
+            success: boolean;
+            content: string;
+            cek?: MaterialPreviewCek[];
+          }>(
             "/api/v1/parse/content",
             { method: "POST", body: { teks: draft.teks_mentah, jenis: "material" } },
           );
-          if (hidup) setHtml(r.content);
+          if (hidup) {
+            setHtml(r.content);
+            setCek(r.cek ?? []);
+          }
         }
       } catch {
         if (hidup) setGagal("Pratinjau tidak bisa dimuat.");
@@ -597,7 +616,7 @@ function DraftPreview({ draft }: { draft: Draft }) {
       {!gagal && html === null && quiz === null && dokumen === null && <p className="muted">Memuat pratinjau...</p>}
       {html !== null && (
         <div className="contoh-doc-wrap">
-          <div className="tcml" dangerouslySetInnerHTML={{ __html: html }} />
+          <MaterialPreview html={html} cek={cek} className="tcml" />
         </div>
       )}
       {dokumen !== null && (
@@ -606,7 +625,7 @@ function DraftPreview({ draft }: { draft: Draft }) {
             <>
               <p style={{ margin: "4px 0" }}><span className="badge">📖 Bagian Materi</span></p>
               <div className="contoh-doc-wrap">
-                <div className="tcml" dangerouslySetInnerHTML={{ __html: dokumen.html }} />
+                <MaterialPreview html={dokumen.html} cek={dokumen.cek} className="tcml" />
               </div>
             </>
           )}

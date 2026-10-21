@@ -45,6 +45,27 @@ def test_cek_terekstrak_dan_render_tanpa_kunci():
     assert all("is_correct" not in o for o in aman["options"])
 
 
+def test_parse_content_untuk_pratinjau_memuat_definisi_cek(client):
+    """Pratinjau editor menerima definisi CEK dari teks yang dikirim,
+    sementara HTML-nya tetap placeholder tanpa kunci/referensi."""
+    res = client.post(
+        "/api/v1/parse/content",
+        json={"teks": MATERI_CEK, "jenis": "material"},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["success"], data["errors"]
+    assert "Menempel teks" not in data["content"]
+    assert "listrik padam" not in data["content"]
+    assert len(data["cek"]) == 2
+    pg, esai = data["cek"]
+    assert pg["indeks"] == 0 and pg["tipe"] == "pilihan_ganda"
+    assert pg["pertanyaan"] == "Apa fungsi Ctrl + V?"
+    assert [o["label"] for o in pg["options"] if o["is_correct"]] == ["B"]
+    assert esai["indeks"] == 1 and esai["tipe"] == "teks"
+    assert "listrik padam" in esai["jawaban_referensi"]
+
+
 def test_cek_tidak_valid_ditolak():
     tanpa_kunci = MATERI_CEK.replace("[ANSWER]B[/ANSWER]", "")
     assert not parse_material(tanpa_kunci)["success"]

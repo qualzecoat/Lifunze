@@ -87,6 +87,11 @@ class ParseResponse(BaseModel):
     success: bool
     content: Any
     errors: list
+    # Khusus pratinjau materi oleh guru/editor: definisi [CEK] hasil parse
+    # dari teks yang DIKIRIM pemanggil (bukan data tersimpan). HTML pada
+    # `content` tetap hanya placeholder tanpa kunci/referensi; daftar ini
+    # dipakai frontend pratinjau untuk menggambar panel soal yang utuh.
+    cek: list = []
 
 
 @app.get("/health")
@@ -119,7 +124,19 @@ def parse_content(req: ParseRequest):
         res = parse_quiz_mcq(req.teks)
     else:
         res = parse_quiz_text(req.teks)
-    return ParseResponse(success=res["success"], content=res["content"], errors=res["errors"])
+
+    cek: list = []
+    if req.jenis == ParseKind.material and res["success"]:
+        from .tcml.cek import extract_ceks
+
+        parsed, _ = extract_ceks(req.teks)
+        cek = [{**item, "indeks": i} for i, item in enumerate(parsed)]
+    return ParseResponse(
+        success=res["success"],
+        content=res["content"],
+        errors=res["errors"],
+        cek=cek,
+    )
 
 
 @app.get("/api/v1/tcml/modules")

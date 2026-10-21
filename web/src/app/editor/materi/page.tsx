@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import MaterialPreview, { type MaterialPreviewCek } from "@/components/MaterialPreview";
 import { apiFetch, getMe, type User } from "@/lib/api";
 
 interface TcmlError {
@@ -280,6 +281,7 @@ function EditorInner() {
   const [teks, setTeks] = useState("");
   const [subjectId, setSubjectId] = useState<string | null>(kelasParam);
   const [previewHtml, setPreviewHtml] = useState("");
+  const [previewCek, setPreviewCek] = useState<MaterialPreviewCek[]>([]);
   const [errors, setErrors] = useState<TcmlError[]>([]);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
@@ -319,19 +321,27 @@ function EditorInner() {
   const runPreview = useCallback(async (value: string) => {
     if (!value.trim()) {
       setPreviewHtml("");
+      setPreviewCek([]);
       setErrors([]);
       return;
     }
     try {
-      const res = await apiFetch<{ success: boolean; content: string | null; errors: TcmlError[] }>(
+      const res = await apiFetch<{
+        success: boolean;
+        content: string | null;
+        errors: TcmlError[];
+        cek?: MaterialPreviewCek[];
+      }>(
         "/api/v1/parse/content",
         { method: "POST", body: { teks: value, jenis: "material" } },
       );
       if (res.success) {
         setPreviewHtml(res.content ?? "");
+        setPreviewCek(res.cek ?? []);
         setErrors([]);
       } else {
         setPreviewHtml("");
+        setPreviewCek([]);
         setErrors(res.errors ?? []);
       }
     } catch {
@@ -944,7 +954,7 @@ function EditorInner() {
             </button>
           </div>
           {previewHtml ? (
-            <article className="card tcml" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+            <MaterialPreview html={previewHtml} cek={previewCek} className="card tcml" />
           ) : (
             <div className="card"><p className="muted">Pratinjau muncul di sini setelah teks valid.</p></div>
           )}
