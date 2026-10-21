@@ -183,7 +183,26 @@ def saved_quiz_out(s: SavedQuiz) -> dict:
         "grup_dokumen": s.grup_dokumen,
         "jenis": s.jenis,
         "jumlah_soal": len(s.snapshot) if isinstance(s.snapshot, list) else 0,
+        # Audit #9: pengaturan pengerjaan ikut terbaca agar UI bisa menampilkannya.
+        "durasi_menit": s.durasi_menit,
+        "acak_soal": bool(s.acak_soal),
+        "acak_opsi": bool(s.acak_opsi),
+        "tampilkan_kunci": bool(s.tampilkan_kunci),
     }
+
+
+def _pengaturan_dari_saved(s: SavedQuiz):
+    """Rakit QuizSettingsIn dari kuis bank (jendela dikosongkan — jadwal baru)."""
+    from .documents import QuizSettingsIn
+
+    return QuizSettingsIn(
+        durasi_menit=s.durasi_menit,
+        acak_soal=bool(s.acak_soal),
+        acak_opsi=bool(s.acak_opsi),
+        dibuka_pada=None,
+        ditutup_pada=None,
+        tampilkan_kunci=bool(s.tampilkan_kunci),
+    )
 
 
 @router.get("/quizzes")
@@ -348,6 +367,10 @@ def copy_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = De
         snapshot=list(src.snapshot) if isinstance(src.snapshot, list) else src.snapshot,
         dibuat_oleh=user.id,
         kategori_id=None,
+        durasi_menit=src.durasi_menit,
+        acak_soal=src.acak_soal,
+        acak_opsi=src.acak_opsi,
+        tampilkan_kunci=src.tampilkan_kunci,
     )
     db.add(s)
     db.commit()
@@ -356,6 +379,19 @@ def copy_saved_quiz(saved_id: int, user: User = Depends(staff), db: Session = De
 
 
 # ------------------------------------------------------- dokumen bank terpadu
+class BankQuizSettingsIn(BaseModel):
+    """Pengaturan pengerjaan yang tersimpan di bank (audit #9).
+
+    Jendela buka/tutup sengaja TIDAK termasuk: itu jadwal pemakaian di
+    kelas, bukan sifat kuis bank.
+    """
+
+    durasi_menit: Optional[int] = Field(default=None, ge=1)
+    acak_soal: bool = False
+    acak_opsi: bool = False
+    tampilkan_kunci: bool = True
+
+
 class BankDocumentIn(BaseModel):
     judul: str = Field(min_length=1, max_length=200)
     jenis: str = Field(pattern="^(materi|tugas|kuis|ujian)$")
@@ -363,6 +399,7 @@ class BankDocumentIn(BaseModel):
     teks_materi: Optional[str] = None
     teks_kuis_pg: Optional[str] = None
     teks_kuis_esai: Optional[str] = None
+    pengaturan_kuis: Optional[BankQuizSettingsIn] = None
 
 
 class BankDocUseIn(BaseModel):
@@ -384,6 +421,7 @@ def _bank_document_out(material, quizzes, grup: str) -> dict:
     anchor = material or (quizzes[0] if quizzes else None)
     if anchor is None:
         raise HTTPException(status_code=404, detail="Dokumen bank tidak ditemukan.")
+    pertama = quizzes[0] if quizzes else None
     return {
         "grup": grup,
         "judul": anchor.judul,
@@ -391,7 +429,25 @@ def _bank_document_out(material, quizzes, grup: str) -> dict:
         "kategori_id": anchor.kategori_id,
         "material": saved_material_out(material) if material else None,
         "quizzes": [saved_quiz_out(s) for s in quizzes],
+        # Audit #9: editor bank memuat pengaturan dari kuis pertama dokumen.
+        "pengaturan_kuis": {
+            "durasi_menit": pertama.durasi_menit if pertama else None,
+            "acak_soal": bool(pertama.acak_soal) if pertama else False,
+            "acak_opsi": bool(pertama.acak_opsi) if pertama else False,
+            "dibuka_pada": None,
+            "ditutup_pada": None,
+            "tampilkan_kunci": bool(pertama.tampilkan_kunci) if pertama else True,
+        },
     }
+
+
+def _terapkan_pengaturan_bank(s: SavedQuiz, p: Optional[BankQuizSettingsIn]) -> None:
+    if p is None:
+        return
+    s.durasi_menit = p.durasi_menit
+    s.acak_soal = p.acak_soal
+    s.acak_opsi = p.acak_opsi
+    s.tampilkan_kunci = p.tampilkan_kunci
 
 
 def _snapshot_kuis(teks: str, tipe: str) -> list:
@@ -432,6 +488,7 @@ def create_bank_document(body: BankDocumentIn, user: User = Depends(staff), db: 
                 dibuat_oleh=user.id, kategori_id=body.kategori_id,
                 grup_dokumen=grup, jenis=body.jenis,
             )
+            _terapkan_pengaturan_bank(s, body.pengaturan_kuis)
             db.add(s)
             quizzes.append(s)
     db.commit()
@@ -485,6 +542,7 @@ def update_bank_document(grup: str, body: BankDocumentIn, user: User = Depends(s
             existing.snapshot = snap
             existing.jenis = body.jenis
             existing.kategori_id = body.kategori_id
+            _terapkan_pengaturan_bank(existing, body.pengaturan_kuis)
             sisa.append(existing)
         elif existing is not None:
             db.delete(existing)
@@ -530,7 +588,7 @@ def use_bank_document(grup: str, body: BankDocUseIn, user: User = Depends(staff)
         buat_kuis_part(
             db, meeting, user,
             judul=s.judul, teks=s.teks_mentah, tipe=s.tipe,
-            grup=grup_baru, jenis=jenis, pengaturan=QuizSettingsIn(),
+            grup=grup_baru, jenis=jenis, pengaturan=_pengaturan_dari_saved(s),
         )
     db.commit()
     return document_out(db, grup_baru)
@@ -559,6 +617,10 @@ def copy_bank_document(grup: str, user: User = Depends(staff), db: Session = Dep
             snapshot=list(s.snapshot) if isinstance(s.snapshot, list) else s.snapshot,
             dibuat_oleh=user.id, kategori_id=None,
             grup_dokumen=grup_baru, jenis=s.jenis,
+            durasi_menit=s.durasi_menit,
+            acak_soal=s.acak_soal,
+            acak_opsi=s.acak_opsi,
+            tampilkan_kunci=s.tampilkan_kunci,
         )
         db.add(baru)
         quizzes_baru.append(baru)

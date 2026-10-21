@@ -41,7 +41,7 @@ from ..paket import (
 )
 from ..tcml.quiz import parse_quiz_v2
 from .materials import _parse_or_400 as _material_parse_or_400
-from .quizzes import _create_questions
+from .quizzes import _create_questions, _notify_quiz_baru
 from .quizzes import _parse_or_400 as _quiz_parse_or_400
 
 router = APIRouter(prefix="/api/v1/generate", tags=["generate"])
@@ -76,6 +76,41 @@ def _own_draft(db: Session, user: User, draft_id: int) -> ContentDraft:
     if d is None or d.user_id != user.id:
         raise HTTPException(status_code=404, detail="Draf tidak ditemukan.")
     return d
+
+
+JENIS_DOKUMEN_VALID = ("materi", "tugas", "kuis", "ujian")
+
+
+def _jenis_dokumen_draf(db: Session, d: ContentDraft) -> str:
+    """Audit #8: jenis dokumen pilihan guru tersimpan di brief job generate;
+    dulu publish/save-bank meng-hardcode 'materi' sehingga draf Ujian/Tugas
+    terbit sebagai Materi Biasa."""
+    if d.jenis != "dokumen":
+        return "materi"
+    job = db.get(GenerationJob, d.generation_job_id) if d.generation_job_id else None
+    nilai = ((job.brief or {}).get("jenis_dokumen") if job else None) or "materi"
+    nilai = str(nilai).strip().lower()
+    return nilai if nilai in JENIS_DOKUMEN_VALID else "materi"
+
+
+def _pengaturan_generate(jenis_dok: str):
+    """Preset pengaturan kuis untuk terbit dari Generate (semua opsional —
+    preset hanya untuk Ujian: acak soal & opsi menyala, meniru editor)."""
+    from .documents import QuizSettingsIn
+
+    if jenis_dok == "ujian":
+        return QuizSettingsIn(acak_soal=True, acak_opsi=True)
+    return QuizSettingsIn()
+
+
+def _tolak_sudah_final(d: ContentDraft) -> None:
+    """Audit #8: publish/save-bank tidak boleh mengulang draf yang sudah
+    final — klik ganda dulu membuat dokumen/kuis duplikat."""
+    if d.status == "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Draf ini sudah diterbitkan/disimpan ke bank sebelumnya — duplikat dicegah. Buka hasil terbitannya untuk mengedit.",
+        )
 
 
 def _resolve_setting(db: Session, user: User, setting_id: Optional[int]) -> AiSetting:
@@ -458,6 +493,7 @@ def save_draft_to_bank(
     d = _own_draft(db, user, draft_id)
     if not d.is_valid:
         raise HTTPException(status_code=400, detail="Draf belum valid — perbaiki dulu sebelum disimpan.")
+    _tolak_sudah_final(d)
     judul = (body.judul or d.judul).strip()
     if d.jenis == "dokumen":
         import uuid as _uuid
@@ -470,12 +506,14 @@ def save_draft_to_bank(
         ):
             raise HTTPException(status_code=400, detail="Dokumen terpadu tidak terbaca bagiannya.")
         grup = _uuid.uuid4().hex
+        jenis_dok = _jenis_dokumen_draf(db, d)
+        preset = _pengaturan_generate(jenis_dok)
         first_id = None
         if parts["materi"]:
             _material_parse_or_400(parts["materi"])
             saved_m = SavedMaterial(
                 judul=judul, teks_mentah=parts["materi"], dibuat_oleh=user.id,
-                grup_dokumen=grup, jenis="materi",
+                grup_dokumen=grup, jenis=jenis_dok,
             )
             db.add(saved_m)
             db.flush()
@@ -490,7 +528,11 @@ def save_draft_to_bank(
                     snapshot=parsed["questions"],
                     dibuat_oleh=user.id,
                     grup_dokumen=grup,
-                    jenis="materi",
+                    jenis=jenis_dok,
+                    durasi_menit=preset.durasi_menit,
+                    acak_soal=preset.acak_soal,
+                    acak_opsi=preset.acak_opsi,
+                    tampilkan_kunci=preset.tampilkan_kunci,
                 )
                 db.add(saved_q)
                 db.flush()
@@ -538,6 +580,7 @@ def publish_draft(
     d = _own_draft(db, user, draft_id)
     if not d.is_valid:
         raise HTTPException(status_code=400, detail="Draf belum valid — perbaiki dulu sebelum diterbitkan.")
+    _tolak_sudah_final(d)
     meeting = get_meeting(db, body.meeting_id)
     subject = get_subject(db, meeting.subject_id)
     require_subject_manage(db, user, subject)
@@ -554,12 +597,13 @@ def publish_draft(
         ):
             raise HTTPException(status_code=400, detail="Dokumen terpadu tidak terbaca bagiannya.")
         grup = _uuid.uuid4().hex
+        jenis_dok = _jenis_dokumen_draf(db, d)
         m_id = q_id = None
         if parts["materi"]:
             m = buat_material_part(
                 db, meeting, user,
                 judul=judul, teks=parts["materi"], grup=grup,
-                jenis="materi", tenggat=None,
+                jenis=jenis_dok, tenggat=None,
             )
             m_id = m.id
         for key, tipe in (("kuis_pg", "pilihan_ganda"), ("kuis_esai", "teks")):
@@ -567,7 +611,7 @@ def publish_draft(
                 q = buat_kuis_part(
                     db, meeting, user,
                     judul=judul, teks=parts[key], tipe=tipe, grup=grup,
-                    jenis="materi", pengaturan=QuizSettingsIn(),
+                    jenis=jenis_dok, pengaturan=_pengaturan_generate(jenis_dok),
                 )
                 if q_id is None:
                     q_id = q.id
@@ -601,6 +645,7 @@ def publish_draft(
         db.add(q)
         db.flush()
         _create_questions(db, q, parsed["questions"])
+        _notify_quiz_baru(db, q)  # audit #8: dulu terbit kuis dari Generate tidak memberi tahu siswa
         d.published_id = q.id
         target = {"quiz_id": q.id}
     d.status = "published"

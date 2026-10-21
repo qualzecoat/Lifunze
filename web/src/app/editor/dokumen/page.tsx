@@ -278,10 +278,50 @@ function kartuKeTeks(cards: CardSoal[], tipe: "pilihan_ganda" | "teks"): string 
 }
 
 /* ============================================================ pecah dokumen gabungan (sisi klien) */
+/** Gabungkan beberapa akar [QUIZ] sejenis menjadi SATU akar: isi digabung,
+ * [TYPE] hanya dari akar pertama, nomor pembungkus soal diurutkan ulang. */
+function gabungSegmenKuis(segments: string[]): string {
+  if (segments.length === 1) return segments[0];
+  const inners: string[][] = [];
+  let typeLine = "";
+  for (const seg of segments) {
+    const ls = seg.split("\n");
+    const mulai = ls.findIndex((l) => /^\s*\[QUIZ\]\s*$/.test(l));
+    let akhir = -1;
+    for (let i = ls.length - 1; i >= 0; i--) {
+      if (/^\s*\[\/QUIZ\]\s*$/.test(ls[i])) { akhir = i; break; }
+    }
+    const inner = ls.slice(mulai + 1, akhir === -1 ? undefined : akhir);
+    for (const l of inner) {
+      if (!typeLine && /^\s*\[TYPE\].*\[\/TYPE\]\s*$/i.test(l)) typeLine = l.trim();
+    }
+    inners.push(inner.filter((l) => !/^\s*\[TYPE\].*\[\/TYPE\]\s*$/i.test(l)));
+  }
+  const gabungan: string[] = [];
+  let nomor = 0;
+  const tumpukan: number[] = [];
+  for (const inner of inners) {
+    for (const l of inner) {
+      if (/^\s*\[QUESTION\s+\d+\]\s*$/.test(l)) {
+        nomor += 1;
+        tumpukan.push(nomor);
+        gabungan.push(`[QUESTION ${nomor}]`);
+      } else if (/^\s*\[\/QUESTION\s+\d+\]\s*$/.test(l)) {
+        gabungan.push(`[/QUESTION ${tumpukan.pop() ?? nomor}]`);
+      } else {
+        gabungan.push(l);
+      }
+    }
+  }
+  return ["[QUIZ]", ...(typeLine ? [typeLine] : []), ...gabungan, "[/QUIZ]"].join("\n");
+}
+
 function pecahDokumen(teks: string): { materi: string | null; kuis_pg: string | null; kuis_esai: string | null } {
-  const out: { materi: string | null; kuis_pg: string | null; kuis_esai: string | null } = {
-    materi: null, kuis_pg: null, kuis_esai: null,
-  };
+  // Audit #14: SEMUA akar dipertahankan. Dulu akar kedua sejenis dibuang
+  // diam-diam (first-wins) — materi pendamping & soal AI hilang saat disimpan.
+  const materiSeg: string[] = [];
+  const pgSeg: string[] = [];
+  const esaiSeg: string[] = [];
   const lines = teks.split("\n");
   let cur: string[] | null = null;
   let root = "";
@@ -297,17 +337,21 @@ function pecahDokumen(teks: string): { materi: string | null; kuis_pg: string | 
       if (ln.trim() === `[/${root}]`) {
         const seg = cur.join("\n").trim();
         if (root === "QUIZ") {
-          if (/\[TYPE\]\s*essay\s*\[\/TYPE\]/i.test(seg)) out.kuis_esai = out.kuis_esai ?? seg;
-          else out.kuis_pg = out.kuis_pg ?? seg;
+          if (/\[TYPE\]\s*essay\s*\[\/TYPE\]/i.test(seg)) esaiSeg.push(seg);
+          else pgSeg.push(seg);
         } else {
-          out.materi = out.materi ?? seg;
+          materiSeg.push(seg);
         }
         cur = null;
         root = "";
       }
     }
   }
-  return out;
+  return {
+    materi: materiSeg.length ? materiSeg.join("\n\n") : null,
+    kuis_pg: pgSeg.length ? gabungSegmenKuis(pgSeg) : null,
+    kuis_esai: esaiSeg.length ? gabungSegmenKuis(esaiSeg) : null,
+  };
 }
 
 function toLocalInput(iso: string | null): string {
@@ -680,6 +724,12 @@ function EditorDokumenInner() {
     kategori_id: number | null;
     material: { teks_mentah: string } | null;
     quizzes: { tipe: string; teks_mentah: string }[];
+    pengaturan_kuis: {
+      durasi_menit: number | null;
+      acak_soal: boolean;
+      acak_opsi: boolean;
+      tampilkan_kunci: boolean;
+    };
   }
 
   async function muatDariBagian(d: {
@@ -732,56 +782,98 @@ function EditorDokumenInner() {
         setCategories(await apiFetch<Category[]>("/api/v1/bank/categories"));
       } catch { /* abaikan */ }
 
+      // Audit #13: baseline dirakit EKSPLISIT dari nilai yang dimuat —
+      // dulu diambil dari snapshot() di dalam setTimeout, tetapi closure
+      // effect menangkap snapshot render PERTAMA (state kosong) sehingga
+      // dokumen yang baru dibuka langsung terbaca "kotor".
+      let baselineAwal: Record<string, unknown> = {
+        judul: "", jenisDok: "materi", tenggat: "", pengaturan: PENGATURAN_AWAL, kategoriId: "",
+        aktifMateri: true, aktifPg: false, aktifEsai: false,
+        teksMateri: "", teksPg: "", teksEsai: "",
+      };
       try {
         if (grupParam) {
           const d = await apiFetch<DokumenResp>(`/api/v1/documents/${grupParam}`);
           if (d.subject_id) setSubjectId(String(d.subject_id));
-          setTenggat(toLocalInput(d.tenggat));
-          setPengaturan({
+          const tenggatAwal = toLocalInput(d.tenggat);
+          const pengaturanAwal: Pengaturan = {
             durasi: d.pengaturan_kuis.durasi_menit ? String(d.pengaturan_kuis.durasi_menit) : "",
             dibuka: toLocalInput(d.pengaturan_kuis.dibuka_pada),
             ditutup: toLocalInput(d.pengaturan_kuis.ditutup_pada),
             acakSoal: d.pengaturan_kuis.acak_soal,
             acakOpsi: d.pengaturan_kuis.acak_opsi,
             tampilkanKunci: d.pengaturan_kuis.tampilkan_kunci,
-          });
+          };
+          setTenggat(tenggatAwal);
+          setPengaturan(pengaturanAwal);
+          const teksMateriAwal = d.material?.teks_mentah ?? null;
+          const teksPgAwal = d.quizzes.find((q) => q.tipe === "pilihan_ganda")?.teks_mentah ?? null;
+          const teksEsaiAwal = d.quizzes.find((q) => q.tipe === "teks")?.teks_mentah ?? null;
           await muatDariBagian({
             judul: d.judul,
             jenis: d.jenis,
-            teksMateri: d.material?.teks_mentah ?? null,
-            teksPg: d.quizzes.find((q) => q.tipe === "pilihan_ganda")?.teks_mentah ?? null,
-            teksEsai: d.quizzes.find((q) => q.tipe === "teks")?.teks_mentah ?? null,
+            teksMateri: teksMateriAwal,
+            teksPg: teksPgAwal,
+            teksEsai: teksEsaiAwal,
           });
+          baselineAwal = {
+            judul: d.judul, jenisDok: d.jenis, tenggat: tenggatAwal, pengaturan: pengaturanAwal, kategoriId: "",
+            aktifMateri: !!teksMateriAwal, aktifPg: !!teksPgAwal, aktifEsai: !!teksEsaiAwal,
+            teksMateri: teksMateriAwal ?? "", teksPg: teksPgAwal ?? "", teksEsai: teksEsaiAwal ?? "",
+          };
         } else if (bankGrupParam) {
           const d = await apiFetch<BankDokumenResp>(`/api/v1/bank/documents/${bankGrupParam}`);
-          setKategoriId(d.kategori_id ? String(d.kategori_id) : "");
+          const kategoriAwal = d.kategori_id ? String(d.kategori_id) : "";
+          const pengaturanAwal: Pengaturan = {
+            durasi: d.pengaturan_kuis.durasi_menit ? String(d.pengaturan_kuis.durasi_menit) : "",
+            dibuka: "", ditutup: "",
+            acakSoal: d.pengaturan_kuis.acak_soal,
+            acakOpsi: d.pengaturan_kuis.acak_opsi,
+            tampilkanKunci: d.pengaturan_kuis.tampilkan_kunci,
+          };
+          setKategoriId(kategoriAwal);
+          setPengaturan(pengaturanAwal);
+          const teksMateriAwal = d.material?.teks_mentah ?? null;
+          const teksPgAwal = d.quizzes.find((q) => q.tipe === "pilihan_ganda")?.teks_mentah ?? null;
+          const teksEsaiAwal = d.quizzes.find((q) => q.tipe === "teks")?.teks_mentah ?? null;
           await muatDariBagian({
             judul: d.judul,
             jenis: d.jenis,
-            teksMateri: d.material?.teks_mentah ?? null,
-            teksPg: d.quizzes.find((q) => q.tipe === "pilihan_ganda")?.teks_mentah ?? null,
-            teksEsai: d.quizzes.find((q) => q.tipe === "teks")?.teks_mentah ?? null,
+            teksMateri: teksMateriAwal,
+            teksPg: teksPgAwal,
+            teksEsai: teksEsaiAwal,
           });
+          baselineAwal = {
+            judul: d.judul, jenisDok: d.jenis, tenggat: "", pengaturan: pengaturanAwal, kategoriId: kategoriAwal,
+            aktifMateri: !!teksMateriAwal, aktifPg: !!teksPgAwal, aktifEsai: !!teksEsaiAwal,
+            teksMateri: teksMateriAwal ?? "", teksPg: teksPgAwal ?? "", teksEsai: teksEsaiAwal ?? "",
+          };
         } else {
           // Dokumen baru: bagian materi dengan blok awal.
           const awal: Blok[] = [
             { id: idBerikut.current++, jenis: "judul", teks: "" },
             { id: idBerikut.current++, jenis: "paragraf", teks: "" },
           ];
+          const teksAwal = susunTeks("MATERIAL", awal);
           setBlocks(awal);
-          setTeksMateri(susunTeks("MATERIAL", awal));
+          setTeksMateri(teksAwal);
+          baselineAwal = { ...baselineAwal, teksMateri: teksAwal };
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memuat dokumen.");
       }
-      // Baseline diatur setelah state awal diterapkan (render berikut).
-      setTimeout(() => setBaseline(snapshot()), 350);
+      setBaseline(JSON.stringify(baselineAwal));
 
       try {
         const mentah = localStorage.getItem(draftKey);
         if (mentah) {
           const d = JSON.parse(mentah) as Record<string, unknown> & { ts: number };
-          setRestoreDraft(d);
+          // Tawarkan pulihkan hanya bila isi draf lokal BERBEDA dari muatan.
+          const isi: Record<string, unknown> = { ...d };
+          delete isi.ts;
+          if (JSON.stringify(isi) !== JSON.stringify(baselineAwal)) {
+            setRestoreDraft(d);
+          }
         }
       } catch { /* abaikan */ }
     });
@@ -922,6 +1014,9 @@ function EditorDokumenInner() {
           teks_materi: p.teks_materi,
           teks_kuis_pg: p.teks_kuis_pg,
           teks_kuis_esai: p.teks_kuis_esai,
+          // Audit #9: pengaturan pengerjaan ikut disimpan di bank
+          // (jendela diabaikan server — itu jadwal, bukan sifat kuis).
+          pengaturan_kuis: p.pengaturan_kuis,
         };
         if (bankGrupParam) {
           await apiFetch(`/api/v1/bank/documents/${bankGrupParam}`, { method: "PATCH", body });

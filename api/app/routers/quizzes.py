@@ -172,6 +172,18 @@ def _apply_settings(quiz: Quiz, body: QuizIn) -> None:
     quiz.tampilkan_kunci = body.tampilkan_kunci
 
 
+def _apply_saved_settings(quiz: Quiz, saved: SavedQuiz) -> None:
+    """Audit #9: pengaturan pengerjaan dari kuis bank diterapkan kembali
+    (durasi/acak/tampilkan kunci). Jendela buka/tutup TIDAK disalin karena
+    itu jadwal untuk kelas asal, bukan sifat kuisnya."""
+    quiz.durasi_menit = saved.durasi_menit
+    quiz.acak_soal = bool(saved.acak_soal)
+    quiz.acak_opsi = bool(saved.acak_opsi)
+    quiz.dibuka_pada = None
+    quiz.ditutup_pada = None
+    quiz.tampilkan_kunci = bool(saved.tampilkan_kunci)
+
+
 def _konten_kuis(quiz: Quiz, questions_db: list | None = None) -> list[dict]:
     """Urutan tampil kuis: blok konten (prolog/hint/catatan) terseling soal.
 
@@ -277,8 +289,12 @@ def create_quiz_from_bank(
         teks_mentah=saved.teks_mentah,
         dibuat_oleh=user.id,
     )
+    _apply_saved_settings(quiz, saved)
     if body is not None:
-        _apply_settings(quiz, body)
+        # Field pengaturan yang EKSPLISIT dikirim pemanggil menimpa bawaan bank.
+        for field in ("durasi_menit", "acak_soal", "acak_opsi", "dibuka_pada", "ditutup_pada", "tampilkan_kunci"):
+            if field in body.model_fields_set:
+                setattr(quiz, field, getattr(body, field))
     db.add(quiz)
     db.flush()
     _create_questions(db, quiz, parsed["questions"])
@@ -455,11 +471,25 @@ def save_quiz_to_bank(
         dibuat_oleh=user.id,
         kategori_id=body.kategori_id,
         asal_id=quiz.id,
+        # Audit #9: simpan pengaturan pengerjaan (jendela tidak disimpan).
+        durasi_menit=quiz.durasi_menit,
+        acak_soal=quiz.acak_soal,
+        acak_opsi=quiz.acak_opsi,
+        tampilkan_kunci=quiz.tampilkan_kunci,
     )
     db.add(saved)
     db.commit()
     db.refresh(saved)
-    return {"id": saved.id, "judul": saved.judul, "tipe": saved.tipe, "kategori_id": saved.kategori_id}
+    return {
+        "id": saved.id,
+        "judul": saved.judul,
+        "tipe": saved.tipe,
+        "kategori_id": saved.kategori_id,
+        "durasi_menit": saved.durasi_menit,
+        "acak_soal": saved.acak_soal,
+        "acak_opsi": saved.acak_opsi,
+        "tampilkan_kunci": saved.tampilkan_kunci,
+    }
 
 
 # ------------------------------------------------------------------- attempts
@@ -617,9 +647,13 @@ def _get_attempt(db: Session, attempt_id: int) -> QuizAttempt:
 
 def _require_attempt_access(db: Session, attempt: QuizAttempt, user: User) -> Quiz:
     quiz = get_quiz(db, attempt.quiz_id)
-    if user.id == attempt.siswa_id:
-        return quiz
     subject, _ = _subject_of_quiz(db, quiz)
+    if user.id == attempt.siswa_id:
+        # Audit #11: kepemilikan attempt saja tidak cukup — siswa yang sudah
+        # dikeluarkan dari kelas kehilangan akses baca/simpan/submit, sama
+        # seperti akses materi & Cek Pemahaman.
+        require_subject_view(db, user, subject)
+        return quiz
     require_subject_manage(db, user, subject)
     return quiz
 
@@ -706,7 +740,7 @@ def save_answers(
     attempt = _get_attempt(db, attempt_id)
     if attempt.siswa_id != user.id:
         raise HTTPException(status_code=403, detail="Attempt ini bukan milik Anda.")
-    quiz = get_quiz(db, attempt.quiz_id)
+    quiz = _require_attempt_access(db, attempt, user)  # audit #11: enrollment dicek
     if attempt.status != "in_progress":
         raise HTTPException(status_code=400, detail="Attempt sudah ditutup.")
     if _finalize_if_expired(db, attempt, quiz):
@@ -726,7 +760,7 @@ def submit_attempt(
     attempt = _get_attempt(db, attempt_id)
     if attempt.siswa_id != user.id:
         raise HTTPException(status_code=403, detail="Attempt ini bukan milik Anda.")
-    quiz = get_quiz(db, attempt.quiz_id)
+    quiz = _require_attempt_access(db, attempt, user)  # audit #11: enrollment dicek
     if attempt.status != "in_progress":
         raise HTTPException(status_code=400, detail="Attempt sudah ditutup.")
     deadline = _deadline(attempt, quiz)

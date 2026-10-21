@@ -522,8 +522,10 @@ function pecahDokumenTeks(teks: string): { materi: string | null; kuis: { teks: 
         const seg = cur.join("\n").trim();
         if (root === "QUIZ") {
           out.kuis.push({ teks: seg, tipe: /\[TYPE\]\s*essay\s*\[\/TYPE\]/i.test(seg) ? "teks" : "pilihan_ganda" });
-        } else if (!out.materi) {
-          out.materi = seg;
+        } else {
+          // Audit #14: akar materi kedua (mis. [EXERCISE] pendamping)
+          // digabung, bukan dibuang.
+          out.materi = out.materi ? `${out.materi}\n\n${seg}` : seg;
         }
         cur = null;
         root = "";

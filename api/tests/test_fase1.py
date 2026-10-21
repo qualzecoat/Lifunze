@@ -212,6 +212,9 @@ class FakeClient:
 @pytest.fixture()
 def fake_http(monkeypatch):
     monkeypatch.setattr("app.routers.ai_settings.http_client", lambda: FakeClient())
+    # Provider dipalsukan total di tes ini -> pemeriksaan resolve SSRF
+    # (audit #12) ikut dipalsukan; pagarnya sendiri dites di test_audit_c.
+    monkeypatch.setattr("app.routers.ai_settings.assert_public_target", lambda url: None)
 
 
 def test_ai_settings_crud_dan_enkripsi(client, fake_http):

@@ -9,6 +9,7 @@ import httpx
 
 from .models import AiSetting
 from .security import decrypt_secret
+from .url_safety import UnsafeUrlError, assert_public_target, normalize_ai_base_url
 
 
 class ProviderError(Exception):
@@ -26,7 +27,13 @@ def chat_completion(setting: AiSetting, messages: list[dict], temperature: float
         raise ProviderError(
             "Model belum dipilih pada Pengaturan AI. Buka Pengaturan AI dan pilih model dulu."
         )
-    url = setting.base_url.rstrip("/") + "/chat/completions"
+    try:
+        # Audit #12: pengaturan lama pun wajib lolos pagar SSRF sebelum
+        # server memanggilnya (base URL bisa menunjuk jaringan internal).
+        url = normalize_ai_base_url(setting.base_url) + "/chat/completions"
+        assert_public_target(url)
+    except UnsafeUrlError as e:
+        raise ProviderError(str(e))
     try:
         with httpx.Client(timeout=180) as client:
             resp = client.post(

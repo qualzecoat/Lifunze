@@ -289,11 +289,31 @@ class ExtendedMaterialRenderer(MaterialRenderer):
                     f'<div class="tc-cek" data-cek-index="{idx}">'
                     f'<p class="tc-cek-placeholder">🧠 Cek Pemahaman {idx + 1}</p></div>'
                 )
+            tag = node.tag
+            # Audit #6: blok mentah dirender dari teks aslinya TANPA
+            # merekursi anak — [CEK] contoh di dalam [CODE]/[FORMULA]/dll
+            # tidak boleh terhitung sebagai soal sisipan atau memicu error
+            # validasi soal.
+            if tag == 'FORMULA':
+                raw_text = self._get_raw_text(node).strip()
+                return f'<pre class="tc-formula"><code>{str(escape(raw_text))}</code></pre>'
+            if tag == 'CODE':
+                raw_text = self._get_raw_text(node).strip()
+                return f'<pre class="tc-code"><code>{str(escape(raw_text))}</code></pre>'
+            if tag in ('DATASET', 'TABLE'):
+                return self._render_table(self._get_raw_text(node).strip())
+            if tag == 'SCRATCH':
+                from .scratch import scratch_embed_html
+                return scratch_embed_html(self._get_raw_text(node), node.line, self.errors)
+            if tag == 'BLOCKS':
+                from .scratch import blocks_html
+                return blocks_html(self._get_raw_text(node))
+            if tag == 'SPRITE':
+                from .scratch import sprite_html
+                return sprite_html(self._get_raw_text(node))
             inner_html = ""
             for child in node.children:
                 inner_html += self._render_node(child)
-
-            tag = node.tag
 
             # --- Base Blocks ---
             if tag == 'MATERIAL':

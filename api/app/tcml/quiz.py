@@ -170,7 +170,29 @@ def parse_quiz_v2(raw_text: str, expected_type: str | None = None) -> dict:
         if child.tag in ("NOTE", "HINT", "EXAMPLE", "WARNING", "SUMMARY"):
             items.append({"jenis": "konten", "tipe": child.tag.lower(), "teks": _raw_text(child)})
             continue
+        if child.tag in ("TITLE", "TYPE"):
+            continue  # metadata kuis, sudah dibaca di atas
+        # Audit #7: blok lain di dalam [QUIZ] TIDAK boleh hilang diam-diam.
+        # Dulu [CEK] di kuis / pembungkus [QUESTION] tanpa nomor / salah
+        # ketik nama blok terlewat begitu saja dan kuis tersimpan dengan
+        # jumlah soal lebih sedikit dari yang ditulis guru.
+        if child.tag == "QUESTION":
+            errors.append({
+                "line": child.line,
+                "message": "Pembungkus soal di [QUIZ] wajib bernomor, contoh [QUESTION 1] ... [/QUESTION 1]. [QUESTION] polos adalah tag teks soal DI DALAM pembungkus.",
+            })
+            continue
+        if child.tag == "CEK":
+            errors.append({
+                "line": child.line,
+                "message": "[CEK] adalah soal sisipan untuk MATERI, bukan bagian [QUIZ]. Pindahkan ke dokumen materi, atau ubah menjadi soal [QUESTION n] di kuis ini.",
+            })
+            continue
         if not (child.tag.startswith("QUESTION") and child.tag != "QUESTION"):
+            errors.append({
+                "line": child.line,
+                "message": f"Blok [{child.tag}] tidak dikenal di dalam [QUIZ] dan tidak dimuat. Periksa nama bloknya.",
+            })
             continue
         q_node = _find_child(child, "QUESTION")
         q_text = _raw_text(q_node) if q_node is not None else ""

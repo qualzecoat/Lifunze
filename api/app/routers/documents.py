@@ -511,6 +511,11 @@ def save_document_to_bank(
                 asal_id=q.id,
                 grup_dokumen=bank_grup,
                 jenis=anchor.jenis,
+                # Audit #9: pengaturan pengerjaan ikut tersimpan di bank.
+                durasi_menit=q.durasi_menit,
+                acak_soal=q.acak_soal,
+                acak_opsi=q.acak_opsi,
+                tampilkan_kunci=q.tampilkan_kunci,
             )
         )
     db.commit()

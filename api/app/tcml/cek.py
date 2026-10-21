@@ -44,6 +44,14 @@ from .quiz import _find_child, _parse_options, _raw_text
 # selingan antar soal (prolog, hint, catatan) — dipakai parse_quiz_v2.
 KONTEN_KUIS_TAGS = {"NOTE", "HINT", "EXAMPLE", "WARNING", "SUMMARY"}
 
+# Isi blok-blok ini bersifat TEKS MENTAH (kode, rumus, data, sprite, blok
+# Scratch). [CEK] yang muncul di dalamnya adalah CONTOH literal, bukan soal
+# sisipan sungguhan: tidak boleh diekstrak, divalidasi, atau diskor
+# (audit #6 — dulu contoh [CEK] di dalam [CODE] menjadi "soal hantu" yang
+# masuk penyebut skor tapi tidak pernah tampil, dan contoh yang tidak valid
+# menggagalkan penyimpanan seluruh materi).
+RAW_BLOCK_TAGS = {"CODE", "FORMULA", "BLOCKS", "DATASET", "TABLE", "SCRATCH", "SPRITE"}
+
 
 def parse_cek_node(node: BlockNode, errors: list) -> dict | None:
     """Parse satu node [CEK]; kesalahan ditambahkan ke `errors`.
@@ -139,6 +147,8 @@ def _kumpulkan(node, hasil: list, errors: list) -> None:
                 parsed = parse_cek_node(child, errors)
                 if parsed is not None:
                     hasil.append(parsed)
+            elif child.tag in RAW_BLOCK_TAGS:
+                continue  # isi mentah: [CEK] di dalamnya hanya contoh literal
             else:
                 _kumpulkan(child, hasil, errors)
 

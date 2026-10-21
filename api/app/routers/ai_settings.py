@@ -17,6 +17,7 @@ from ..db import get_db
 from ..deps import require_csrf, require_roles
 from ..models import AiSetting, User
 from ..security import decrypt_secret, encrypt_secret, mask_secret
+from ..url_safety import UnsafeUrlError, assert_public_target, normalize_ai_base_url
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
 guru_admin = require_roles("guru", "admin")
@@ -44,6 +45,21 @@ def setting_out(s: AiSetting) -> dict:
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+
+
+def _base_atau_400(raw: str) -> str:
+    """Audit #12: base URL wajib lolos pagar SSRF sebelum disimpan/dipakai."""
+    try:
+        return normalize_ai_base_url(raw)
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _pastikan_tujuan_publik(url: str) -> None:
+    try:
+        assert_public_target(url)
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _own_setting(db: Session, user: User, setting_id: int) -> AiSetting:
@@ -96,7 +112,7 @@ def create_setting(
     s = AiSetting(
         user_id=user.id,
         nama=body.nama.strip(),
-        base_url=body.base_url.strip().rstrip("/"),
+        base_url=_base_atau_400(body.base_url),
         api_key_encrypted=encrypt_secret(body.api_key.strip()),
         model=(body.model or "").strip() or None,
         is_default=False,
@@ -121,7 +137,7 @@ def update_setting(
     if body.nama is not None:
         s.nama = body.nama.strip()
     if body.base_url is not None:
-        s.base_url = body.base_url.strip().rstrip("/")
+        s.base_url = _base_atau_400(body.base_url)
     if body.api_key:
         s.api_key_encrypted = encrypt_secret(body.api_key.strip())
     if body.model is not None:
@@ -170,7 +186,8 @@ def fetch_models(
         api_key = decrypt_secret(_own_setting(db, user, body.setting_id).api_key_encrypted)
     if not api_key:
         raise HTTPException(status_code=400, detail="API key wajib diisi untuk mengambil daftar model.")
-    base = body.base_url.strip().rstrip("/")
+    base = _base_atau_400(body.base_url)
+    _pastikan_tujuan_publik(f"{base}/models")
     try:
         with http_client() as client:
             res = client.get(f"{base}/models", headers={"Authorization": f"Bearer {api_key}"})
@@ -207,6 +224,7 @@ def test_connection(
         "temperature": 0,
     }
     start = time.monotonic()
+    _pastikan_tujuan_publik(f"{s.base_url}/chat/completions")
     try:
         with http_client() as client:
             res = client.post(
