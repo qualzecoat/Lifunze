@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, type CSSProperties } from "react";
 
 export interface MaterialPreviewCekOption {
   label: string;
@@ -83,10 +82,36 @@ function PreviewCekPanel({ item, indeks }: { item: MaterialPreviewCek; indeks: n
 }
 
 /**
- * Render HTML materi untuk konteks guru/editor. Placeholder [CEK] dari
- * renderer diisi panel soal utuh lewat portal, supaya pratinjau tidak
- * berhenti pada teks "Cek Pemahaman N" saja.
+ * Render HTML materi untuk konteks guru/editor, dengan panel [CEK] utuh.
+ *
+ * RIWAYAT BUG (laporan Qualze 2026-10-21, dua kali): versi lama memasang
+ * panel soal lewat createPortal ke dalam elemen hasil dangerouslySetInnerHTML
+ * yang ditemukan via querySelectorAll di useEffect. Di browser nyata panel
+ * tidak pernah muncul — pratinjau berhenti pada teks placeholder
+ * "🧠 Cek Pemahaman N" — sementara tes API tetap hijau karena jalur data
+ * backend memang benar. Versi ini TIDAK memakai portal/efek/DOM manual:
+ * HTML dipecah pada placeholder dan panel digambar sebagai komponen React
+ * biasa di sela-selanya. Deterministik di SSR maupun klien.
  */
+const PLACEHOLDER_RE = /<div class="tc-cek" data-cek-index="(\d+)"[^>]*>[\s\S]*?<\/div>/g;
+
+type Segmen =
+  | { jenis: "html"; html: string }
+  | { jenis: "cek"; indeks: number; mentah: string };
+
+function pecahHtml(html: string): Segmen[] {
+  const hasil: Segmen[] = [];
+  let terakhir = 0;
+  for (const m of html.matchAll(PLACEHOLDER_RE)) {
+    const idx = m.index ?? 0;
+    if (idx > terakhir) hasil.push({ jenis: "html", html: html.slice(terakhir, idx) });
+    hasil.push({ jenis: "cek", indeks: Number(m[1]), mentah: m[0] });
+    terakhir = idx + m[0].length;
+  }
+  if (terakhir < html.length) hasil.push({ jenis: "html", html: html.slice(terakhir) });
+  return hasil;
+}
+
 export default function MaterialPreview({
   html,
   cek = [],
@@ -98,40 +123,28 @@ export default function MaterialPreview({
   className?: string;
   style?: CSSProperties;
 }) {
-  const rootRef = useRef<HTMLElement>(null);
-  const [slots, setSlots] = useState<HTMLElement[]>([]);
-
-  useEffect(() => {
-    if (!rootRef.current) {
-      setSlots([]);
-      return;
-    }
-    const found = Array.from(
-      rootRef.current.querySelectorAll<HTMLElement>("[data-cek-index]"),
-    );
-    // Kosongkan teks placeholder bawaan renderer; panel React menggantikannya.
-    found.forEach((el) => el.replaceChildren());
-    setSlots(found);
-  }, [html, cek]);
+  const perIndeks = new Map<number, MaterialPreviewCek>();
+  cek.forEach((item, i) => perIndeks.set(item.indeks ?? i, item));
+  const segmen = pecahHtml(html);
 
   return (
-    <>
-      <article
-        ref={rootRef}
-        className={className}
-        style={style}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-      {cek.map((item, i) => {
-        const indeks = item.indeks ?? i;
-        const slot = slots.find((el) => Number(el.dataset.cekIndex) === indeks);
-        if (!slot) return null;
-        return createPortal(
-          <PreviewCekPanel item={item} indeks={indeks} />,
-          slot,
-          `preview-cek-${indeks}`,
+    <article className={className} style={style}>
+      {segmen.map((s, i) => {
+        if (s.jenis === "html") {
+          return <div key={i} dangerouslySetInnerHTML={{ __html: s.html }} />;
+        }
+        const item = perIndeks.get(s.indeks);
+        if (!item) {
+          // Tak ada definisi untuk indeks ini — tampilkan placeholder apa
+          // adanya daripada menghilangkan konten.
+          return <div key={i} dangerouslySetInnerHTML={{ __html: s.mentah }} />;
+        }
+        return (
+          <Fragment key={i}>
+            <PreviewCekPanel item={item} indeks={s.indeks} />
+          </Fragment>
         );
       })}
-    </>
+    </article>
   );
 }
