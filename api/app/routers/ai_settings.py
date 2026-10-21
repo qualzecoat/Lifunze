@@ -140,6 +140,13 @@ def delete_setting(
     db: Session = Depends(get_db),
 ):
     s = _own_setting(db, user, setting_id)
+    # Audit #5: lepas rujukan riwayat job generate (FK tanpa cascade bisa
+    # menahan penghapusan di PostgreSQL).
+    from ..models import GenerationJob
+
+    db.query(GenerationJob).filter(GenerationJob.ai_setting_id == s.id).update(
+        {GenerationJob.ai_setting_id: None}, synchronize_session=False
+    )
     db.delete(s)
     db.commit()
     return {"ok": True}

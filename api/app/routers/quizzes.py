@@ -19,6 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..access import get_meeting, get_subject, require_subject_manage, require_subject_view
@@ -385,9 +386,24 @@ def update_quiz(
 
     if body.judul is not None:
         quiz.judul = body.judul.strip()
+    # Audit #10/#32: pengaturan pengerjaan dikunci begitu ada attempt —
+    # mengubah durasi/jendela/acak/tampilkan_kunci di tengah pengerjaan
+    # merusak keadilan penilaian. Judul & teks (teks sudah dikunci di atas)
+    # tidak termasuk.
+    ada_attempt = db.query(QuizAttempt).filter(QuizAttempt.quiz_id == quiz.id).first()
     for field in ("durasi_menit", "acak_soal", "acak_opsi", "dibuka_pada", "ditutup_pada", "tampilkan_kunci"):
         value = getattr(body, field)
         if value is not None:
+            lama = getattr(quiz, field)
+            if field in ("dibuka_pada", "ditutup_pada"):
+                sama = lama is not None and _as_utc(lama) == _as_utc(value)
+            else:
+                sama = lama == value
+            if ada_attempt is not None and not sama:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Pengaturan kuis tidak bisa diubah: sudah ada siswa yang mengerjakan kuis ini.",
+                )
             setattr(quiz, field, value)
     db.commit()
     db.refresh(quiz)
@@ -448,9 +464,17 @@ def save_quiz_to_bank(
 
 # ------------------------------------------------------------------- attempts
 def _deadline(attempt: QuizAttempt, quiz: Quiz) -> Optional[datetime]:
-    if not quiz.durasi_menit:
-        return None
-    return _as_utc(attempt.started_at) + timedelta(minutes=quiz.durasi_menit)
+    """Batas akhir attempt = yang PALING AWAL antara durasi pengerjaan dan
+    jendela tutup kuis (audit #10: dulu ditutup_pada tidak pernah menjadi
+    batas attempt yang sedang berjalan, jadi siswa bisa submit jauh setelah
+    kuis ditutup)."""
+    batas: Optional[datetime] = None
+    if quiz.durasi_menit:
+        batas = _as_utc(attempt.started_at) + timedelta(minutes=quiz.durasi_menit)
+    if quiz.ditutup_pada:
+        tutup = _as_utc(quiz.ditutup_pada)
+        batas = tutup if batas is None else min(batas, tutup)
+    return batas
 
 
 def _answers_map(db: Session, attempt: QuizAttempt) -> dict[int, AttemptAnswer]:
@@ -633,7 +657,24 @@ def start_attempt(
 
     attempt = QuizAttempt(quiz_id=quiz.id, siswa_id=user.id, status="in_progress")
     db.add(attempt)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Audit #29: request bersamaan dari siswa yang sama — indeks unik
+        # parsial menolak attempt aktif kedua; lanjutkan attempt yang menang.
+        db.rollback()
+        existing = (
+            db.query(QuizAttempt)
+            .filter(
+                QuizAttempt.quiz_id == quiz.id,
+                QuizAttempt.siswa_id == user.id,
+                QuizAttempt.status == "in_progress",
+            )
+            .first()
+        )
+        if existing is None:
+            raise HTTPException(status_code=409, detail="Attempt sedang dibuat — coba lagi sebentar.")
+        return attempt_view(db, existing, quiz, user)
     db.refresh(attempt)
     return attempt_view(db, attempt, quiz, user)
 

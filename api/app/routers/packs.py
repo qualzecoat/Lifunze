@@ -293,6 +293,13 @@ def update_pack(
 @router.delete("/{pack_id}", dependencies=[Depends(require_csrf)])
 def delete_pack(pack_id: int, user: User = Depends(staff), db: Session = Depends(get_db)):
     pack = _get_owned_pack(db, user, pack_id)
+    # Audit #5: riwayat job generate yang merujuk paket ini dilepas (SET NULL
+    # manual) agar FK tidak menahan penghapusan; shares ikut cascade ORM.
+    from ..models import GenerationJob
+
+    db.query(GenerationJob).filter(GenerationJob.pack_id == pack.id).update(
+        {GenerationJob.pack_id: None}, synchronize_session=False
+    )
     db.delete(pack)
     db.commit()
     return {"ok": True}

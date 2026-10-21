@@ -17,11 +17,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -111,6 +113,11 @@ class Subject(Base, TimestampMixin):
     meetings: Mapped[list["Meeting"]] = relationship(
         back_populates="subject", cascade="all, delete-orphan", order_by="Meeting.urutan"
     )
+    # Audit #5: tanpa relasi ini, hapus kelas gagal di PostgreSQL karena
+    # announcements.subject_id menahan FK (tidak ada cascade di DB).
+    announcements: Mapped[list["Announcement"]] = relationship(
+        "Announcement", cascade="all, delete-orphan"
+    )
 
 
 class Enrollment(Base):
@@ -159,6 +166,18 @@ class Material(Base, TimestampMixin):
     meeting: Mapped["Meeting"] = relationship(back_populates="materials")
     files: Mapped[list["MaterialFile"]] = relationship(
         back_populates="material", cascade="all, delete-orphan"
+    )
+    # Audit #5: anak-anak materi yang FK-nya tanpa cascade di DB — cascade
+    # ORM ini yang membuat hapus materi/dokumen/kelas berhasil di PostgreSQL
+    # (baris anak dihapus lebih dulu oleh unit of work).
+    submissions: Mapped[list["Submission"]] = relationship(
+        "Submission", cascade="all, delete-orphan"
+    )
+    reads: Mapped[list["MaterialRead"]] = relationship(
+        "MaterialRead", cascade="all, delete-orphan"
+    )
+    cek_answers: Mapped[list["CekAnswer"]] = relationship(
+        "CekAnswer", cascade="all, delete-orphan"
     )
 
 
@@ -234,6 +253,19 @@ class QuestionOption(Base):
 
 class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
+    # Audit #29: maksimal SATU attempt in_progress per (kuis, siswa) ditegakkan
+    # di level DB — dua request bersamaan tidak bisa lagi membuat dua attempt
+    # aktif. Attempt lama yang sudah submitted/graded tidak dibatasi.
+    __table_args__ = (
+        Index(
+            "uq_attempt_sedang_berjalan",
+            "quiz_id",
+            "siswa_id",
+            unique=True,
+            sqlite_where=text("status = 'in_progress'"),
+            postgresql_where=text("status = 'in_progress'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id"), nullable=False)
@@ -301,6 +333,13 @@ class SavedQuiz(Base):
     asal_id: Mapped[Optional[int]] = mapped_column(Integer)  # id kuis pertemuan asal (lihat SavedMaterial)
     grup_dokumen: Mapped[Optional[str]] = mapped_column(String(36), index=True)
     jenis: Mapped[str] = mapped_column(String(20), default="kuis")
+    # Audit #9: pengaturan kuis ikut disimpan agar roundtrip bank tidak
+    # mengembalikan kuis ke bawaan (jendela dibuka/ditutup TIDAK disimpan —
+    # itu jadwal, sama seperti Template Kelas).
+    durasi_menit: Mapped[Optional[int]] = mapped_column(Integer)
+    acak_soal: Mapped[bool] = mapped_column(Boolean, default=False)
+    acak_opsi: Mapped[bool] = mapped_column(Boolean, default=False)
+    tampilkan_kunci: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class BankQuestion(Base, TimestampMixin):
@@ -378,9 +417,17 @@ class ParserPack(Base, TimestampMixin):
     # Pilihan tag per modul (Mode Lanjutan): {"slug-modul": ["TAG", ...]}.
     # NULL = paket klasik (seluruh tag dari modul terpilih).
     tag_pilihan: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Audit #35: penanda top-up modul cek-pemahaman untuk preset lama sudah
+    # pernah diterapkan — agar modul yang sengaja dihapus guru tidak
+    # ditambahkan kembali setiap kali ensure_preset_packs berjalan.
+    topup_cek_v1: Mapped[bool] = mapped_column(Boolean, default=False)
 
     modules: Mapped[list["ParserPackModule"]] = relationship(
         back_populates="pack", cascade="all, delete-orphan", order_by="ParserPackModule.urutan"
+    )
+    # Audit #5: shares menahan FK ke paket — cascade agar hapus paket berhasil.
+    shares: Mapped[list["ParserPackShare"]] = relationship(
+        "ParserPackShare", cascade="all, delete-orphan"
     )
 
 

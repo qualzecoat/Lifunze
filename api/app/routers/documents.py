@@ -26,6 +26,7 @@ from ..access import (
 from ..db import get_db
 from ..deps import get_current_user, require_csrf
 from ..models import (
+    CekAnswer,
     Material,
     Meeting,
     Quiz,
@@ -38,8 +39,9 @@ from ..models import (
 from ..tcml import parse_material
 from ..tcml.quiz import parse_quiz_v2
 from .bank import _validate_category
-from .materials import material_out
+from .materials import material_out, pagar_cek
 from .quizzes import (
+    _as_utc,
     _create_questions,
     _notify_quiz_baru,
     _parse_or_400 as _parse_kuis_or_400,
@@ -152,6 +154,25 @@ def _parse_materi_or_400(teks: str) -> str:
             detail={"pesan": "Bagian materi tidak valid.", "errors": res["errors"]},
         )
     return res["content"]
+
+
+def _pengaturan_berubah(quiz: Quiz, s: QuizSettingsIn) -> bool:
+    """True bila pengaturan pengerjaan pada `s` berbeda dari yang tersimpan."""
+    if (
+        quiz.durasi_menit != s.durasi_menit
+        or quiz.acak_soal != s.acak_soal
+        or quiz.acak_opsi != s.acak_opsi
+        or quiz.tampilkan_kunci != s.tampilkan_kunci
+    ):
+        return True
+    for field in ("dibuka_pada", "ditutup_pada"):
+        lama = getattr(quiz, field)
+        baru = getattr(s, field)
+        if (lama is None) != (baru is None):
+            return True
+        if lama is not None and baru is not None and _as_utc(lama) != _as_utc(baru):
+            return True
+    return False
 
 
 def _terapkan_pengaturan(quiz: Quiz, s: QuizSettingsIn) -> None:
@@ -308,6 +329,7 @@ def update_document(
         if material is not None:
             material.judul = body.judul.strip()
             if body.teks_materi != material.teks_mentah:
+                pagar_cek(db, material, body.teks_materi)  # audit #4
                 material.teks_mentah = body.teks_materi
                 material.rendered_html = _parse_materi_or_400(body.teks_materi)
             material.jenis = body.jenis
@@ -324,10 +346,14 @@ def update_document(
             db.query(Submission).filter(Submission.material_id == material.id).first()
             is not None
         )
-        if punya_lampiran or punya_kumpul:
+        punya_jawaban_cek = (
+            db.query(CekAnswer).filter(CekAnswer.material_id == material.id).first()
+            is not None
+        )
+        if punya_lampiran or punya_kumpul or punya_jawaban_cek:
             raise HTTPException(
                 status_code=400,
-                detail="Bagian materi punya lampiran/pengumpulan siswa — tidak bisa dikosongkan dari dokumen.",
+                detail="Bagian materi punya lampiran/pengumpulan/jawaban Cek Pemahaman siswa — tidak bisa dikosongkan dari dokumen.",
             )
         db.delete(material)
         material = None
@@ -344,6 +370,18 @@ def update_document(
             if existing is not None:
                 existing.judul = body.judul.strip()
                 existing.jenis = body.jenis
+                # Audit #10/#32: pengaturan dikunci begitu ada attempt.
+                if _pengaturan_berubah(existing, body.pengaturan_kuis):
+                    ada_attempt = (
+                        db.query(QuizAttempt)
+                        .filter(QuizAttempt.quiz_id == existing.id)
+                        .first()
+                    )
+                    if ada_attempt is not None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Pengaturan kuis tidak bisa diubah: sudah ada siswa yang mengerjakan kuis ini.",
+                        )
                 _terapkan_pengaturan(existing, body.pengaturan_kuis)
                 if teks != existing.teks_mentah:
                     ada_attempt = (

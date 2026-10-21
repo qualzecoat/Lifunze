@@ -239,12 +239,54 @@ def _daftar_cek(m: Material) -> list[dict]:
 
 
 def _skor_cek(ceks: list[dict], jawaban: dict[int, CekAnswer]) -> dict | None:
-    """Nilai materi dari Cek Pemahaman — hanya PG yang diskor."""
+    """Nilai materi dari Cek Pemahaman — hanya PG yang diskor.
+
+    Audit #4: jawaban hanya dihitung bila indeksnya masih ada di daftar CEK
+    saat ini DAN tipe soal pada indeks itu tetap PG — jawaban basi dari
+    susunan soal lama tidak boleh menggelembungkan skor (dulu bisa >100%).
+    """
     maks = sum(c["bobot"] for c in ceks if c["tipe"] == "pilihan_ganda")
     if maks <= 0:
         return None
-    diperoleh = sum((a.skor or 0) for a in jawaban.values() if a.tipe == "pilihan_ganda")
+    diperoleh = sum(
+        (a.skor or 0)
+        for i, a in jawaban.items()
+        if 0 <= i < len(ceks)
+        and ceks[i]["tipe"] == "pilihan_ganda"
+        and a.tipe == "pilihan_ganda"
+    )
     return {"diperoleh": diperoleh, "maksimal": maks, "persen": round(diperoleh / maks * 100, 1)}
+
+
+def _tanda_cek(teks: str) -> list[tuple[str, str]] | None:
+    """Tanda tangan isi soal sisipan: [(tipe, pertanyaan), ...] per indeks."""
+    from ..tcml.cek import extract_ceks
+
+    ceks, errors = extract_ceks(teks or "")
+    if errors:
+        return None
+    return [(c["tipe"], c["pertanyaan"]) for c in ceks]
+
+
+def pagar_cek(db: Session, m: Material, teks_baru: str) -> None:
+    """Audit #4: bila materi ini sudah punya jawaban Cek Pemahaman, daftar
+    soal sisipannya (isi & urutan) tidak boleh berubah — jawaban siswa
+    terikat nomor urut. Mengedit bagian materi di luar blok [CEK] tetap
+    bebas. Dipakai juga oleh editor dokumen."""
+    ada = db.query(CekAnswer).filter(CekAnswer.material_id == m.id).first()
+    if ada is None:
+        return
+    lama = _tanda_cek(m.teks_mentah or "")
+    baru = _tanda_cek(teks_baru)
+    if lama is not None and baru is not None and lama != baru:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Soal Cek Pemahaman di materi ini sudah dijawab siswa — isi dan urutan "
+                "soal sisipan tidak bisa diubah agar nilai siswa tidak bergeser. "
+                "Bagian materi di luar blok [CEK] tetap bisa diedit."
+            ),
+        )
 
 
 def _cek_payload(db: Session, m: Material, user: User) -> dict:
@@ -339,6 +381,7 @@ def jawab_cek(
     if row is None:
         row = CekAnswer(material_id=m.id, siswa_id=user.id, cek_index=cek_index, tipe=cek["tipe"])
         db.add(row)
+    row.tipe = cek["tipe"]  # audit #4: samakan dengan tipe soal saat ini
     row.jawaban = jawaban_simpan
     row.benar = benar
     row.skor = skor
@@ -388,7 +431,7 @@ def hasil_cek(
             {
                 "siswa_id": e.student_id,
                 "nama": (siswa.nama_lengkap or siswa.username) if siswa else "?",
-                "terjawab": len(jawaban),
+                "terjawab": sum(1 for i in jawaban if 0 <= i < len(ceks)),
                 "total": len(ceks),
                 "skor_persen": skor["persen"] if skor else None,
             }
@@ -407,6 +450,7 @@ def update_material(
     m = get_material(db, material_id)
     subject, _ = _subject_of_material(db, m)
     require_subject_manage(db, user, subject)
+    pagar_cek(db, m, body.teks_mentah)  # audit #4: kunci daftar [CEK] bila sudah dijawab
     html = _parse_or_400(body.teks_mentah)  # gagal -> materi lama tidak berubah
     m.judul = body.judul.strip()
     m.teks_mentah = body.teks_mentah
@@ -457,10 +501,13 @@ def delete_material(
     m = get_material(db, material_id)
     subject, _ = _subject_of_material(db, m)
     require_subject_manage(db, user, subject)
-    for f in list(m.files):
-        _remove_file_from_disk(f.storage_key)
-    db.delete(m)
+    kunci_file = [f.storage_key for f in list(m.files)]
+    db.delete(m)  # cascade ORM menghapus submission/tanda baca/jawaban CEK (audit #5)
     db.commit()
+    # File fisik dihapus SETELAH commit berhasil — dulu file hilang duluan
+    # walaupun penghapusan DB-nya gagal (audit #5).
+    for kunci in kunci_file:
+        _remove_file_from_disk(kunci)
     return {"ok": True}
 
 

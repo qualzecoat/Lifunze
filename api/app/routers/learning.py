@@ -323,7 +323,15 @@ def _skor_cek_materi(db: Session, m, jawaban: dict) -> float | None:
     maks = sum(c["bobot"] for c in ceks if c["tipe"] == "pilihan_ganda")
     if maks <= 0:
         return None
-    diperoleh = sum((a.skor or 0) for a in jawaban.values() if a.tipe == "pilihan_ganda")
+    # Audit #4: sama seperti materials._skor_cek — hanya jawaban pada indeks
+    # yang masih ada & tetap bertipe PG yang dihitung.
+    diperoleh = sum(
+        (a.skor or 0)
+        for i, a in jawaban.items()
+        if 0 <= i < len(ceks)
+        and ceks[i]["tipe"] == "pilihan_ganda"
+        and a.tipe == "pilihan_ganda"
+    )
     return round(diperoleh / maks * 100, 1)
 
 
