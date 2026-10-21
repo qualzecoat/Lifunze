@@ -144,6 +144,42 @@ function ContohRender({ jenis, konten }: { jenis: string; konten: string }) {
   );
 }
 
+/* ------------------------------------------- Template Alur Mengajar */
+export interface BagianAlur {
+  peran: string;
+  label: string;
+  status: string; // wajib | opsional | pilihan
+  modul: string[];
+  catatan: string;
+}
+
+export interface TemplateAlur {
+  id: number;
+  nama: string;
+  deskripsi: string | null;
+  pemilik: string;
+  preset: boolean;
+  visibilitas: string;
+  pack_id: number | null;
+  paket_dasar: boolean;
+  bagian: BagianAlur[];
+  milik_saya: boolean;
+  bisa_ubah: boolean;
+}
+
+const PERAN_ALUR: { nilai: string; label: string }[] = [
+  { nilai: "pembuka", label: "🎬 Pembuka" },
+  { nilai: "konsep", label: "📖 Konsep" },
+  { nilai: "contoh", label: "💡 Contoh" },
+  { nilai: "kasus", label: "🔍 Studi Kasus" },
+  { nilai: "diskusi", label: "💬 Diskusi" },
+  { nilai: "cek", label: "🧠 Cek Pemahaman" },
+  { nilai: "latihan", label: "✍️ Latihan" },
+  { nilai: "proyek", label: "🛠️ Proyek" },
+  { nilai: "ringkasan", label: "🧾 Ringkasan" },
+  { nilai: "bebas", label: "✨ Bebas" },
+];
+
 /* ------------------------------------------------------------- halaman */
 export default function PaketPage() {
   const router = useRouter();
@@ -154,16 +190,14 @@ export default function PaketPage() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
-  type TabKey = "buat" | "saya" | "dibagikan";
-  const [tab, setTab] = useState<TabKey>("buat");
+  type TabKey = "alur" | "buat" | "saya" | "dibagikan";
+  const [tab, setTab] = useState<TabKey>("alur");
   const [okJump, setOkJump] = useState<{ label: string; tab: TabKey } | null>(null);
   // form buat/edit
   const [editId, setEditId] = useState<number | null>(null);
   const [nama, setNama] = useState("");
   const [deskripsi, setDeskripsi] = useState("");
-  const [mode, setMode] = useState<"mudah" | "lanjut">("mudah");
   const [sel, setSel] = useState<Selection>({});
-  const [contohSlug, setContohSlug] = useState<string | null>(null);
   const [openTag, setOpenTag] = useState<string | null>(null);
   const [cari, setCari] = useState("");
   const [specPreview, setSpecPreview] = useState<{ spec: string; karakter: number } | null>(null);
@@ -177,6 +211,17 @@ export default function PaketPage() {
   const [shareFor, setShareFor] = useState<number | null>(null);
   const [shareMode, setShareMode] = useState<"private" | "all" | "users">("private");
   const [shareUsers, setShareUsers] = useState<number[]>([]);
+  // Template Alur Mengajar
+  const [tplPreset, setTplPreset] = useState<TemplateAlur[]>([]);
+  const [tplSaya, setTplSaya] = useState<TemplateAlur[]>([]);
+  const [tplDibagikan, setTplDibagikan] = useState<TemplateAlur[]>([]);
+  const [tForm, setTForm] = useState(false);
+  const [tEditId, setTEditId] = useState<number | null>(null);
+  const [tNama, setTNama] = useState("");
+  const [tDeskripsi, setTDeskripsi] = useState("");
+  const [tPack, setTPack] = useState<string>("dasar");
+  const [tBagian, setTBagian] = useState<BagianAlur[]>([]);
+  const [tSpec, setTSpec] = useState<{ karakter: number; pack_nama: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -190,10 +235,126 @@ export default function PaketPage() {
       setPacks(await apiFetch<Pack[]>("/api/v1/packs"));
       setShared(await apiFetch<Pack[]>("/api/v1/packs/shared"));
       setRecipients(await apiFetch<Recipient[]>("/api/v1/packs/recipients"));
+      const tpl = await apiFetch<{ preset: TemplateAlur[]; saya: TemplateAlur[]; dibagikan: TemplateAlur[] }>("/api/v1/templates");
+      setTplPreset(tpl.preset);
+      setTplSaya(tpl.saya);
+      setTplDibagikan(tpl.dibagikan);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat paket.");
     }
   }, []);
+
+  /* ---- aksi Template Alur ---- */
+  function bukaFormTemplate(t?: TemplateAlur) {
+    setTForm(true);
+    setTSpec(null);
+    if (t) {
+      setTEditId(t.bisa_ubah ? t.id : null); // preset/orang lain -> simpan jadi template baru
+      setTNama(t.bisa_ubah ? t.nama : `${t.nama} (Salinan)`);
+      setTDeskripsi(t.deskripsi ?? "");
+      setTPack(t.paket_dasar ? "dasar" : String(t.pack_id ?? "dasar"));
+      setTBagian(t.bagian.map((b) => ({ ...b, modul: [...b.modul] })));
+    } else {
+      setTEditId(null);
+      setTNama("");
+      setTDeskripsi("");
+      setTPack("dasar");
+      setTBagian([
+        { peran: "pembuka", label: "Pembuka", status: "wajib", modul: ["inti-materi"], catatan: "" },
+        { peran: "konsep", label: "Konsep Inti", status: "wajib", modul: ["inti-materi"], catatan: "" },
+        { peran: "ringkasan", label: "Ringkasan", status: "wajib", modul: ["inti-materi"], catatan: "" },
+      ]);
+    }
+  }
+
+  async function simpanTemplate(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      const body = {
+        nama: tNama.trim(),
+        deskripsi: tDeskripsi || null,
+        pack_id: tPack === "dasar" ? null : Number(tPack),
+        paket_dasar: tPack === "dasar",
+        bagian: tBagian,
+      };
+      if (tEditId) {
+        await apiFetch(`/api/v1/templates/${tEditId}`, { method: "PATCH", body });
+        showOk("Template alur diperbarui.");
+      } else {
+        await apiFetch("/api/v1/templates", { method: "POST", body });
+        showOk("Template alur dibuat.");
+      }
+      setTForm(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan template.");
+    }
+  }
+
+  async function forkTemplate(t: TemplateAlur) {
+    try {
+      await apiFetch(`/api/v1/templates/${t.id}/fork`, { method: "POST" });
+      showOk(`Template "${t.nama}" di-fork ke template Anda.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal mem-fork template.");
+    }
+  }
+
+  async function hapusTemplate(t: TemplateAlur) {
+    if (!window.confirm(`Hapus template "${t.nama}"? Kelas yang menjadikannya default akan kehilangan rujukan itu.`)) return;
+    try {
+      await apiFetch(`/api/v1/templates/${t.id}`, { method: "DELETE" });
+      showOk("Template dihapus.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menghapus template.");
+    }
+  }
+
+  async function bagikanTemplate(t: TemplateAlur) {
+    try {
+      await apiFetch(`/api/v1/templates/${t.id}/share`, {
+        method: "PUT",
+        body: { mode: t.visibilitas === "shared" ? "private" : "shared" },
+      });
+      showOk(t.visibilitas === "shared" ? "Template dijadikan privat." : "Template dibagikan ke semua guru.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal mengubah berbagi template.");
+    }
+  }
+
+  async function pratinjauSpecTemplate() {
+    try {
+      const r = await apiFetch<{ karakter: number; pack_nama: string }>("/api/v1/templates/preview-spec", {
+        method: "POST",
+        body: {
+          bagian: tBagian,
+          pack_id: tPack === "dasar" ? null : Number(tPack),
+          paket_dasar: tPack === "dasar",
+        },
+      });
+      setTSpec(r);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal mempratinjau spec.");
+    }
+  }
+
+  function ubahBagian(i: number, patch: Partial<BagianAlur>) {
+    setTBagian((prev) => prev.map((b, j) => (j === i ? { ...b, ...patch } : b)));
+  }
+
+  function pindahBagian(i: number, arah: -1 | 1) {
+    setTBagian((prev) => {
+      const j = i + arah;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
 
   useEffect(() => {
     getMe().then((u) => {
@@ -202,7 +363,7 @@ export default function PaketPage() {
       else {
         setUser(u);
         const awal = new URLSearchParams(window.location.search).get("tab");
-        if (awal && ["buat", "saya", "dibagikan"].includes(awal)) {
+        if (awal && ["alur", "buat", "saya", "dibagikan"].includes(awal)) {
           setTab(awal as TabKey);
         }
         load();
@@ -270,17 +431,6 @@ export default function PaketPage() {
   }
 
   /* ---- aksi pilihan ---- */
-  function toggleModule(slug: string) {
-    const m = moduleBySlug(slug);
-    if (!m) return;
-    setSel((prev) => {
-      const next = { ...prev };
-      if ((next[slug] ?? []).length > 0) delete next[slug];
-      else next[slug] = [...m.tags];
-      return next;
-    });
-    setUjiHasil(null);
-  }
 
   function toggleTag(slug: string, tag: string, on: boolean) {
     setSel((prev) => {
@@ -315,8 +465,6 @@ export default function PaketPage() {
     setDeskripsi("");
     const inti = moduleBySlug("inti-materi");
     setSel(inti ? { "inti-materi": [...inti.tags] } : {});
-    setMode("mudah");
-    setContohSlug(null);
     setOpenTag(null);
     setUjiHasil(null);
   }
@@ -362,7 +510,6 @@ export default function PaketPage() {
       Object.entries(next).every(
         ([slug, tags]) => tags.length === (moduleBySlug(slug)?.tags.length ?? -1),
       );
-    setMode(p.tag_pilihan && !classic ? "lanjut" : "mudah");
     setShareFor(null);
     setUjiHasil(null);
     gantiTab("buat");
@@ -417,6 +564,48 @@ export default function PaketPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Meja uji gagal.");
     }
+  }
+
+  function templateCard(t: TemplateAlur) {
+    return (
+      <div className="card" key={t.id} style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <strong>🧭 {t.nama}</strong>
+          <span className="badge">
+            {t.preset ? "⭐ bawaan sistem" : t.visibilitas === "shared" ? "🔗 dibagikan" : "🔒 privat"}
+          </span>
+        </div>
+        {t.deskripsi && <p className="muted" style={{ marginTop: 4 }}>{t.deskripsi}</p>}
+        <p className="muted" style={{ marginTop: 2 }}>
+          oleh {t.pemilik} · paket: {t.paket_dasar ? "Paket Dasar Serba Bisa" : "paket kustom (Lanjutan)"}
+        </p>
+        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {t.bagian.map((b, i) => (
+            <span key={i} className="badge" title={b.catatan || undefined}>
+              {i + 1}. {b.label}
+              {b.status === "opsional" ? " (opsional)" : b.status === "pilihan" ? " (pilihan gaya)" : ""}
+            </span>
+          ))}
+          {t.bagian.length === 0 && <span className="muted">Tanpa urutan khusus — bebas.</span>}
+        </div>
+        <div className="row-actions" style={{ marginTop: 10 }}>
+          <button className="btn btn-sm" onClick={() => bukaFormTemplate(t)}>
+            {t.bisa_ubah ? "✏️ Edit" : "👁 Lihat / Salin"}
+          </button>
+          {!t.milik_saya && (
+            <button className="btn btn-sm" onClick={() => forkTemplate(t)}>⤵ Fork</button>
+          )}
+          {t.bisa_ubah && (
+            <>
+              <button className="btn btn-sm" onClick={() => bagikanTemplate(t)}>
+                {t.visibilitas === "shared" ? "🔒 Jadikan Privat" : "🔗 Bagikan"}
+              </button>
+              <button className="btn btn-sm btn-danger" onClick={() => hapusTemplate(t)}>Hapus</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 
   function packCard(p: Pack, mine: boolean) {
@@ -476,13 +665,12 @@ export default function PaketPage() {
     );
   }
 
-  const contohModul = contohSlug ? moduleBySlug(contohSlug) : undefined;
   const q = cari.trim().toLowerCase();
 
   return (
     <main className="page" style={{ paddingBottom: 110 }}>
       <AppHeader user={user} />
-      <h1 style={{ fontSize: "1.5rem", marginBottom: 4 }}>🧩 Paket Parser</h1>
+      <h1 style={{ fontSize: "1.5rem", marginBottom: 4 }}>🧭 Alur &amp; Paket Parser</h1>
       <p className="muted" style={{ marginBottom: 16 }}>
         Paket menentukan format apa saja yang boleh dibuat AI untuk Anda. Saat Generate AI, hanya spesifikasi
         dalam paket yang dikirim ke AI — hemat konteks dan hasil lebih patuh format. Paket bisa dibagikan ke
@@ -504,21 +692,128 @@ export default function PaketPage() {
         active={tab}
         onChange={(k) => gantiTab(k as TabKey)}
         tabs={[
-          { key: "buat", label: "🛠️ Buat Paket" },
+          { key: "alur", label: "🧭 Alur Mengajar" },
+          { key: "buat", label: "🛠️ Paket Lanjutan" },
           { key: "saya", label: `📦 Paket Saya (${packs.length})` },
           { key: "dibagikan", label: `🔗 Dibagikan (${shared.length})` },
         ]}
       />
 
+      <div style={{ display: tab === "alur" ? undefined : "none" }}>
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h3 style={{ margin: "0 0 6px" }}>🧭 Alur Mengajar (Pedagogi)</h3>
+          <p className="muted" style={{ margin: 0 }}>
+            Pilih alur — generate AI akan mengikuti urutan bagiannya dan memakai <strong>Paket Dasar
+            Serba Bisa</strong> di balik layar, dengan spec yang disaring hanya untuk bagian alur ini
+            (hemat &amp; fokus). Anda tidak perlu memikirkan parser sama sekali. Mau mengatur parser
+            sendiri per tag? Itu ada di tab <strong>Paket Lanjutan</strong> — paket di sana menjadi
+            &quot;Paket Kustom&quot; yang bisa dirujuk template lanjutan Anda.
+          </p>
+          {!tForm && (
+            <div style={{ marginTop: 10 }}>
+              <button className="btn btn-primary" onClick={() => bukaFormTemplate()}>➕ Template Alur Baru</button>
+            </div>
+          )}
+        </div>
+
+        {tForm && (
+          <form className="card" style={{ marginBottom: 14 }} onSubmit={simpanTemplate}>
+            <h3 style={{ marginTop: 0 }}>{tEditId ? "Edit Template Alur" : "Template Alur Baru"}</h3>
+            <label className="label">Nama alur</label>
+            <input className="input" value={tNama} onChange={(e) => setTNama(e.target.value)} required placeholder="mis. Alur Praktik Komputer Kelas 5" />
+            <label className="label">Deskripsi</label>
+            <input className="input" value={tDeskripsi} onChange={(e) => setTDeskripsi(e.target.value)} placeholder="opsional" />
+            <label className="label">Paket parser yang dirujuk</label>
+            <select className="select" value={tPack} onChange={(e) => setTPack(e.target.value)}>
+              <option value="dasar">Paket Dasar Serba Bisa (disarankan)</option>
+              {packs.map((p) => (
+                <option key={p.id} value={String(p.id)}>Paket kustom: {p.nama}</option>
+              ))}
+            </select>
+            <label className="label" style={{ marginTop: 12 }}>Urutan bagian materi</label>
+            {tBagian.map((b, i) => (
+              <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <strong>{i + 1}.</strong>
+                  <select className="select" style={{ maxWidth: 180 }} value={b.peran} onChange={(e) => ubahBagian(i, { peran: e.target.value })}>
+                    {PERAN_ALUR.map((r) => (
+                      <option key={r.nilai} value={r.nilai}>{r.label}</option>
+                    ))}
+                  </select>
+                  <input className="input" style={{ maxWidth: 220 }} value={b.label} onChange={(e) => ubahBagian(i, { label: e.target.value })} placeholder="Label bagian" />
+                  <select className="select" style={{ maxWidth: 150 }} value={b.status} onChange={(e) => ubahBagian(i, { status: e.target.value })}>
+                    <option value="wajib">Wajib</option>
+                    <option value="opsional">Opsional</option>
+                    <option value="pilihan">Pilihan gaya</option>
+                  </select>
+                  <span className="row-actions">
+                    <button type="button" className="btn btn-sm" onClick={() => pindahBagian(i, -1)}>↑</button>
+                    <button type="button" className="btn btn-sm" onClick={() => pindahBagian(i, 1)}>↓</button>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => setTBagian((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                  </span>
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {modules.map((m) => {
+                    const aktif = b.modul.includes(m.slug);
+                    return (
+                      <button
+                        type="button"
+                        key={m.slug}
+                        className={`btn btn-sm${aktif ? " btn-primary" : ""}`}
+                        onClick={() => ubahBagian(i, { modul: aktif ? b.modul.filter((s) => s !== m.slug) : [...b.modul, m.slug] })}
+                      >
+                        {m.ikon} {m.nama}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  className="input"
+                  style={{ marginTop: 8 }}
+                  value={b.catatan}
+                  onChange={(e) => ubahBagian(i, { catatan: e.target.value })}
+                  placeholder="Catatan gaya untuk AI pada bagian ini (opsional) — mis. buka dengan kasus nyata"
+                />
+              </div>
+            ))}
+            <div className="row-actions" style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setTBagian((prev) => [...prev, { peran: "bebas", label: "Bagian Baru", status: "opsional", modul: ["inti-materi"], catatan: "" }])}
+              >
+                ➕ Tambah Bagian
+              </button>
+              <button type="button" className="btn btn-sm" onClick={pratinjauSpecTemplate}>🔍 Pratinjau Spec Tersaring</button>
+              {tSpec && (
+                <span className="muted">
+                  Spec tersaring: {tSpec.karakter.toLocaleString("id-ID")} karakter · paket: {tSpec.pack_nama}
+                </span>
+              )}
+            </div>
+            <div className="row-actions" style={{ marginTop: 12 }}>
+              <button className="btn btn-primary" type="submit">💾 Simpan Template</button>
+              <button className="btn" type="button" onClick={() => setTForm(false)}>Batal</button>
+            </div>
+          </form>
+        )}
+
+        <h3 style={{ margin: "18px 0 10px" }}>⭐ Bawaan Sistem</h3>
+        {tplPreset.map((t) => templateCard(t))}
+        <h3 style={{ margin: "18px 0 10px" }}>📦 Template Saya ({tplSaya.length})</h3>
+        {tplSaya.map((t) => templateCard(t))}
+        {tplSaya.length === 0 && <p className="muted">Belum ada template sendiri — fork template bawaan atau buat baru.</p>}
+        <h3 style={{ margin: "18px 0 10px" }}>🔗 Dibagikan ({tplDibagikan.length})</h3>
+        {tplDibagikan.map((t) => templateCard(t))}
+        {tplDibagikan.length === 0 && <p className="muted">Belum ada template yang dibagikan guru lain.</p>}
+      </div>
+
       <div style={{ display: tab === "buat" ? undefined : "none" }}>
       <form id="packForm" onSubmit={submitPack}>
       <div className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <h3 style={{ margin: 0 }}>{editId ? "Edit Paket" : "Buat Paket Baru"}</h3>
-          <div className="seg-toggle" role="tablist" aria-label="Mode penyusunan">
-            <button type="button" role="tab" aria-selected={mode === "mudah"} className={mode === "mudah" ? "on" : ""} onClick={() => setMode("mudah")}>🌱 Mode Mudah</button>
-            <button type="button" role="tab" aria-selected={mode === "lanjut"} className={mode === "lanjut" ? "on" : ""} onClick={() => setMode("lanjut")}>🛠️ Mode Lanjutan</button>
-          </div>
+          <h3 style={{ margin: 0 }}>{editId ? "Edit Paket Kustom" : "Buat Paket Kustom (Lanjutan)"}</h3>
+          
         </div>
         <div style={{ marginTop: 10 }}>
           <label className="label">Nama paket</label>
@@ -528,72 +823,7 @@ export default function PaketPage() {
         </div>
       </div>
 
-          {mode === "mudah" ? (
-            <>
-              <label className="label">Pilih modul — klik kartu untuk memakai modulnya</label>
-              <div className="modgrid">
-                {modules.map((m) => {
-                  const aktif = (sel[m.slug] ?? []).length > 0;
-                  const sebagian = aktif && (sel[m.slug] ?? []).length < m.tags.length;
-                  return (
-                    <div
-                      key={m.slug}
-                      className={`modcard${aktif ? " on" : ""}`}
-                      onClick={() => toggleModule(m.slug)}
-                      role="button"
-                      aria-pressed={aktif}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        // Audit #31: kartu modul bisa dioperasikan keyboard.
-                        // Tombol Contoh di dalam kartu menangani tombolnya sendiri.
-                        if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
-                          e.preventDefault();
-                          toggleModule(m.slug);
-                        }
-                      }}
-                    >
-                      <div className="check-badge">✓</div>
-                      <div className="modcard-ikon">{m.ikon}</div>
-                      <div className="modcard-nama">{m.nama}</div>
-                      <div className="modcard-desc">{m.deskripsi}</div>
-                      <div className="modcard-ft">
-                        <span className="muted" style={{ fontSize: ".8rem", fontWeight: 600 }}>
-                          {m.tags.length} parser{sebagian ? " · sebagian dipilih (Mode Lanjutan)" : ""}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-contoh"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setContohSlug(contohSlug === m.slug ? null : m.slug);
-                          }}
-                        >
-                          👁 Contoh
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {contohModul && (
-                <div className="card" style={{ marginTop: 14, marginBottom: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                    <strong>Contoh hasil — {contohModul.nama}</strong>
-                    <button type="button" className="btn btn-sm" onClick={() => setContohSlug(null)}>Tutup ✕</button>
-                  </div>
-                  <p className="muted" style={{ marginTop: 2 }}>
-                    Seperti inilah dokumen yang akan dibuat AI bila modul ini dipakai dalam paket.
-                  </p>
-                  {contohModul.examples.map((ex, i) => (
-                    <div key={i} className="contoh-doc-wrap">
-                      <ContohRender jenis={ex.jenis} konten={ex.konten} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
+          
               <label className="label">Semua parser — nyalakan/matikan satu per satu</label>
               <input
                 className="input"
@@ -723,8 +953,7 @@ export default function PaketPage() {
                     </div>
                   ))}
               </div>
-            </>
-          )}
+            
 
       </form>
       </div>
@@ -750,7 +979,7 @@ export default function PaketPage() {
       <div style={{ display: tab === "saya" ? undefined : "none" }}>
       <h3 style={{ margin: "18px 0 10px" }}>Paket Saya ({packs.length})</h3>
       {packs.map((p) => packCard(p, true))}
-      {packs.length === 0 && <p className="muted">Belum ada paket. Buat paket pertama Anda di tab Buat Paket.</p>}
+      {packs.length === 0 && <p className="muted">Belum ada paket. Buat paket pertama Anda di tab Paket Lanjutan.</p>}
       </div>
 
       <div style={{ display: tab === "dibagikan" ? undefined : "none" }}>

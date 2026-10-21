@@ -58,6 +58,13 @@ export default function GeneratePage() {
   const [jenjang, setJenjang] = useState("");
   const [jumlahSoal, setJumlahSoal] = useState("5");
   const [instruksi, setInstruksi] = useState("");
+  // Pedagogi & konteks (2026-10-21)
+  const [templates, setTemplates] = useState<{ id: number; nama: string; preset: boolean }[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [kepadatan, setKepadatan] = useState("sedang");
+  const [aktivitas, setAktivitas] = useState<string[]>([]);
+  const [konteks, setKonteks] = useState<{ subjectId: number; meetingId: number; label: string } | null>(null);
+  const [peringatan, setPeringatan] = useState<string[]>([]);
   const [impTeks, setImpTeks] = useState("");
   // publish picker
   const [subjects, setSubjects] = useState<SubjectBrief[]>([]);
@@ -90,6 +97,26 @@ export default function GeneratePage() {
         setPacks([...mine, ...shared]);
         setSettings(await apiFetch<Setting[]>("/api/v1/ai/settings"));
         setSubjects(await apiFetch<SubjectBrief[]>("/api/v1/subjects"));
+        const tpl = await apiFetch<{ preset: { id: number; nama: string }[]; saya: { id: number; nama: string }[]; dibagikan: { id: number; nama: string }[] }>("/api/v1/templates");
+        setTemplates([
+          ...tpl.preset.map((t) => ({ ...t, preset: true })),
+          ...tpl.saya.map((t) => ({ ...t, preset: false })),
+          ...tpl.dibagikan.map((t) => ({ ...t, preset: false })),
+        ]);
+        // Konteks dari kelas: /generate?subject=..&meeting=..&topik=..
+        const q = new URLSearchParams(window.location.search);
+        const sId = Number(q.get("subject") || 0);
+        const mId = Number(q.get("meeting") || 0);
+        if (q.get("topik")) setTopik(q.get("topik") as string);
+        if (q.get("jenis") === "dokumen") setKind("dokumen");
+        if (sId && mId) {
+          const detail = await apiFetch<{ nama: string; jenjang?: string | null; template_default_id?: number | null; pack_default_id?: number | null; meetings: MeetingBrief[] }>(`/api/v1/subjects/${sId}`);
+          const mtg = detail.meetings.find((m) => m.id === mId);
+          setKonteks({ subjectId: sId, meetingId: mId, label: `${detail.nama} — ${mtg?.judul ?? "pertemuan"}` });
+          if (detail.template_default_id) setTemplateId(String(detail.template_default_id));
+          if (detail.pack_default_id) setPackId(String(detail.pack_default_id));
+          if (detail.jenjang) setJenjang(detail.jenjang);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memuat data.");
       }
@@ -128,31 +155,42 @@ export default function GeneratePage() {
     : d.status !== "published" && d.is_valid,
   );
 
+  const materiLike =
+    kind === "materi" || (kind === "dokumen" && (jenisDokumen === "materi" || jenisDokumen === "tugas"));
+
   async function onGenerate(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setOk("");
+    setPeringatan([]);
     setBusy(true);
     try {
-      const res = await apiFetch<{ drafts: Draft[] }>("/api/v1/generate", {
+      const res = await apiFetch<{ drafts: Draft[]; peringatan_struktur?: string[]; dua_tahap?: boolean }>("/api/v1/generate", {
         method: "POST",
         body: {
           kind,
           pack_id: Number(packId),
           ai_setting_id: settingId ? Number(settingId) : null,
+          template_id: templateId ? Number(templateId) : null,
           brief: {
             topik,
             jenjang: jenjang || undefined,
             instruksi: instruksi || undefined,
-            jumlah_soal: kind !== "materi" ? Number(jumlahSoal) || undefined : undefined,
+            jumlah_soal: !materiLike ? Number(jumlahSoal) || undefined : undefined,
             jenis_dokumen: kind === "dokumen" ? jenisDokumen : undefined,
+            kepadatan_cek: materiLike ? kepadatan : undefined,
+            aktivitas: materiLike && aktivitas.length ? aktivitas : undefined,
+            subject_id: konteks?.subjectId,
+            meeting_id: konteks?.meetingId,
           },
         },
       });
       setDrafts((prev) => [...res.drafts, ...prev]);
+      setPeringatan(res.peringatan_struktur ?? []);
       const validCount = res.drafts.filter((d) => d.is_valid).length;
       showOk(
         `Generate selesai: ${res.drafts.length} dokumen, ${validCount} valid. ` +
+          (res.dua_tahap ? "Soal sisipan ditulis pada tahap kedua dari materi jadi. " : "") +
           (validCount < res.drafts.length ? "Dokumen invalid bisa diperbaiki otomatis (maks 2x) atau diedit manual." : ""),
       );
       gantiTab("draf");
@@ -276,6 +314,22 @@ export default function GeneratePage() {
       />
 
       <div style={{ display: tab === "buat" ? undefined : "none" }}>
+      {konteks && (
+        <div className="alert alert-ok" style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <span>🧭 Generate ini membawa <strong>konteks kelas &amp; kesinambungan</strong>: {konteks.label}. AI akan membaca rencana pertemuan ini dan ringkasan pertemuan sebelumnya.</span>
+          <button className="btn btn-sm" onClick={() => setKonteks(null)}>Lepaskan konteks</button>
+        </div>
+      )}
+      {peringatan.length > 0 && (
+        <div className="alert" style={{ marginBottom: 12, background: "#FFFBEB", border: "1px solid var(--accent)" }}>
+          <strong>⚠️ Catatan struktur dari generate terakhir:</strong>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {peringatan.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <form className="card" onSubmit={onGenerate}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
           <div>
@@ -286,6 +340,18 @@ export default function GeneratePage() {
               <option value="kuis_esai">Kuis Esai</option>
               <option value="dokumen">📄 Dokumen Terpadu (Materi + Kuis)</option>
             </select>
+          </div>
+          <div>
+            <label className="label">🧭 Alur mengajar (pedagogi)</label>
+            <select className="select" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+              <option value="">— tanpa alur khusus —</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.preset ? "⭐ " : ""}{t.nama}</option>
+              ))}
+            </select>
+            <p className="muted" style={{ marginTop: 4 }}>
+              Bila alur dipilih, paket mengikuti alurnya (umumnya Paket Dasar) dan spec disaring sesuai bagian alur.
+            </p>
           </div>
           <div>
             <label className="label">Paket parser</label>
@@ -311,10 +377,23 @@ export default function GeneratePage() {
             <label className="label">Jenjang/kelas</label>
             <input className="input" value={jenjang} onChange={(e) => setJenjang(e.target.value)} placeholder="mis. SD kelas 5" />
           </div>
-          {kind !== "materi" && (
+          {!materiLike && (
             <div>
               <label className="label">Jumlah soal</label>
               <input className="input" type="number" min={1} max={30} value={jumlahSoal} onChange={(e) => setJumlahSoal(e.target.value)} />
+            </div>
+          )}
+          {materiLike && (
+            <div>
+              <label className="label">🧠 Kepadatan soal sisipan (Cek Pemahaman)</label>
+              <select className="select" value={kepadatan} onChange={(e) => setKepadatan(e.target.value)}>
+                <option value="jarang">Jarang (±2 soal)</option>
+                <option value="sedang">Sedang (±4 soal)</option>
+                <option value="padat">Padat (±6 soal)</option>
+              </select>
+              <p className="muted" style={{ marginTop: 4 }}>
+                Bukan kuota: soal ditulis sesudah materi jadi, maks 1 per bagian, hanya untuk konsep penting.
+              </p>
             </div>
           )}
           {kind === "dokumen" && (
@@ -337,6 +416,26 @@ export default function GeneratePage() {
         </div>
         <label className="label">Topik</label>
         <input className="input" value={topik} onChange={(e) => setTopik(e.target.value)} required placeholder="mis. Pecahan senilai dan cara menyederhanakannya" />
+        {materiLike && (
+          <div style={{ marginTop: 10 }}>
+            <label className="label">Komposisi aktivitas (selain bacaan inti)</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {["Studi kasus", "Pertanyaan diskusi", "Contoh terapan", "Kesalahan umum", "Latihan mandiri", "Ringkasan akhir"].map((a) => {
+                const aktif = aktivitas.includes(a);
+                return (
+                  <button
+                    type="button"
+                    key={a}
+                    className={`btn btn-sm${aktif ? " btn-primary" : ""}`}
+                    onClick={() => setAktivitas((prev) => (aktif ? prev.filter((x) => x !== a) : [...prev, a]))}
+                  >
+                    {aktif ? "✓ " : ""}{a}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <label className="label">Instruksi tambahan</label>
         <textarea className="textarea" rows={2} value={instruksi} onChange={(e) => setInstruksi(e.target.value)} placeholder="mis. Sertakan 1 contoh soal cerita dan 1 catatan pengingat (opsional)" />
         <button className="btn btn-primary" type="submit" disabled={busy || !packId} style={{ marginTop: 12 }}>

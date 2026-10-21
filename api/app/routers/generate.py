@@ -8,6 +8,7 @@ meninjau, memperbaiki (manual atau self-repair AI, maks 2x), lalu menyimpan
 ke bank atau menerbitkan ke pertemuan.
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -26,6 +27,7 @@ from ..models import (
     GenerationJob,
     Material,
     ParserPack,
+    PedagogyTemplate,
     Quiz,
     SavedMaterial,
     SavedQuiz,
@@ -36,9 +38,16 @@ from ..paket import (
     can_access_pack,
     pack_module_rows,
     roots_for_slugs,
+    spec_text_for_selection,
     split_documents,
     validate_bundle_document,
     validate_document,
+)
+from ..pedagogi import (
+    can_access_template,
+    instruksi_urutan,
+    narrowed_selection,
+    resolve_pack,
 )
 from ..tcml.quiz import parse_quiz_v2
 from .materials import _parse_or_400 as _material_parse_or_400
@@ -130,7 +139,20 @@ def _resolve_setting(db: Session, user: User, setting_id: Optional[int]) -> AiSe
     return s
 
 
-def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None, boleh_materi: bool = True) -> str:
+KEPADATAN_CEK = {"jarang": 2, "sedang": 4, "padat": 6}
+
+
+def _materi_like(kind: str, brief: dict) -> bool:
+    """Generate yang hasilnya materi/tugas (bukan kuis betulan) — untuk
+    jenis ini jumlah soal bersifat kepadatan, bukan kuota."""
+    if kind == "materi":
+        return True
+    if kind == "dokumen":
+        return (brief.get("jenis_dokumen") or "materi") in ("materi", "tugas")
+    return False
+
+
+def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None, boleh_materi: bool = True, dua_tahap: bool = False) -> str:
     topik = (brief.get("topik") or "").strip()
     instruksi = (brief.get("instruksi") or "").strip()
     punya_cek = bool(slugs and "cek-pemahaman" in slugs)
@@ -189,17 +211,210 @@ def _brief_to_user_prompt(kind: str, brief: dict, slugs: list[str] | None = None
     lines = [f"Buatkan {target} tentang: {topik}."]
     if brief.get("jenjang"):
         lines.append(f"Jenjang/kelas: {brief['jenjang']}.")
-    if kind in ("kuis_pg", "kuis_esai", "dokumen") and brief.get("jumlah_soal"):
+    kepadatan = str(brief.get("kepadatan_cek") or "").strip().lower()
+    pakai_kepadatan = _materi_like(kind, brief) and kepadatan in KEPADATAN_CEK and punya_cek
+    if kind in ("kuis_pg", "kuis_esai", "dokumen") and brief.get("jumlah_soal") and not pakai_kepadatan:
         lines.append(f"Jumlah soal: {brief['jumlah_soal']}.")
+    if pakai_kepadatan and not dua_tahap:
+        # Tanpa dua tahap, kepadatan disampaikan sebagai kisaran lunak —
+        # BUKAN kuota: akar masalah lama adalah angka pasti yang dikejar
+        # model sampai soal ditabur ke paragraf yang tidak nyambung.
+        lines.append(
+            f"Soal sisipan [CEK]: kepadatan {kepadatan} (sekitar {KEPADATAN_CEK[kepadatan]} soal, "
+            "MAKSIMAL 1 per bagian, hanya setelah konsepnya selesai dijelaskan dan hanya untuk "
+            "konsep yang benar-benar penting — lebih baik kurang daripada memaksakan jumlah)."
+        )
+    if brief.get("aktivitas"):
+        dipilih = [str(a) for a in brief["aktivitas"] if str(a).strip()]
+        if dipilih:
+            lines.append(
+                "Komposisi aktivitas yang WAJIB hadir dalam materi (di luar bacaan inti): "
+                + ", ".join(dipilih) + "."
+            )
     if instruksi:
         lines.append(f"Instruksi tambahan: {instruksi}")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------ dua tahap
+_CEK_RE = re.compile(r"\[CEK\][\s\S]*?\[/CEK\]")
+_ROOT_MATERIAL_RE = re.compile(r"\[MATERIAL\]([\s\S]*?)\[/MATERIAL\]")
+_HEADING_SPLIT_RE = re.compile(r"(\[HEADING\][\s\S]*?\[/HEADING\])")
+_UNIT_TAHAP2_RE = re.compile(r"\[TARGET\]([\s\S]*?)\[/TARGET\]\s*(\[CEK\][\s\S]*?\[/CEK\])")
+
+
+def _strip_cek(teks: str) -> str:
+    """Buang blok [CEK] dari keluaran tahap 1 (tahap 2 menulisnya ulang
+    berdasarkan materi jadi, agar soal menempel ke isi)."""
+    return _CEK_RE.sub("", teks)
+
+
+def _bagian_materi(teks: str):
+    """Pecah isi root [MATERIAL] menjadi segmen per [HEADING].
+    Mengembalikan (match_root, segmen) — segmen[0] adalah pembuka sebelum
+    heading pertama (heading=None). None bila tak ada root materi."""
+    m = _ROOT_MATERIAL_RE.search(teks)
+    if not m:
+        return None
+    parts = _HEADING_SPLIT_RE.split(m.group(1))
+    segmen = [{"heading": None, "teks": parts[0], "cek": False}]
+    i = 1
+    while i < len(parts):
+        heading = re.sub(r"\[/?HEADING\]", "", parts[i]).strip()
+        isi = parts[i + 1] if i + 1 < len(parts) else ""
+        segmen.append({"heading": heading, "teks": parts[i] + isi, "cek": False})
+        i += 2
+    return m, segmen
+
+
+def _norm_heading(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip().lower()
+
+
+def _sisipkan_cek(teks: str, units: list[tuple[str, str]], maks: int) -> str:
+    """Sisipkan blok [CEK] (dari tahap 2) di akhir bagian [HEADING]
+    targetnya; target tak ketemu -> bagian terpanjang yang belum berisi
+    CEK. Maksimal 1 CEK per bagian, total dibatasi `maks`."""
+    hasil_bagian = _bagian_materi(teks)
+    if not hasil_bagian:
+        return teks
+    m, segmen = hasil_bagian
+    terpakai = 0
+    for target, blok in units:
+        if terpakai >= maks:
+            break
+        idx = None
+        nt = _norm_heading(target)
+        for j, seg in enumerate(segmen):
+            if seg["heading"] is not None and not seg["cek"] and _norm_heading(seg["heading"]) == nt:
+                idx = j
+                break
+        if idx is None:
+            kandidat = [j for j, seg in enumerate(segmen) if j > 0 and not seg["cek"]]
+            if not kandidat and len(segmen) > 1:
+                break
+            if not kandidat:
+                kandidat = [0] if not segmen[0]["cek"] else []
+            if not kandidat:
+                break
+            idx = max(kandidat, key=lambda j: len(segmen[j]["teks"]))
+        segmen[idx]["teks"] = segmen[idx]["teks"].rstrip() + "\n" + blok.strip() + "\n"
+        segmen[idx]["cek"] = True
+        terpakai += 1
+    if not terpakai:
+        return teks
+    isi_baru = "".join(seg["teks"] for seg in segmen)
+    return teks[: m.start(1)] + isi_baru + teks[m.end(1):]
+
+
+def _prompt_tahap2(teks_materi: str, target_jumlah: int) -> tuple[str, str]:
+    """Prompt tahap 2: AI menerima materi JADI dan menulis soal sisipan
+    yang menempel per bagian. Keluaran wajib berformat [TARGET]+[CEK]."""
+    hasil_bagian = _bagian_materi(teks_materi)
+    headings = []
+    if hasil_bagian:
+        headings = [s["heading"] for s in hasil_bagian[1] if s["heading"]]
+    daftar = "\n".join(f"- {h}" for h in headings) or "- (materi tanpa sub-bagian; targetkan heading kosong)"
+    system = (
+        "Kamu menulis soal sisipan Cek Pemahaman [CEK] untuk materi yang SUDAH JADI. "
+        "Soal harus menempel persis ke isi bagian yang ditargetkan — uji pemahaman konsep "
+        "bagian itu, bukan hafalan umum. Keluarkan HANYA unit-unit berikut, tanpa teks lain:\n"
+        "[TARGET]teks heading bagian persis seperti di materi[/TARGET]\n"
+        "[CEK]...satu blok soal sisipan...[/CEK]\n"
+        "Maksimal 1 unit per bagian. Variasikan bentuk: pilihan ganda dan esai singkat."
+    )
+    user = (
+        f"Tulis {target_jumlah} soal sisipan untuk materi berikut.\n"
+        f"Bagian-bagian yang tersedia sebagai target:\n{daftar}\n\n"
+        f"MATERI:\n{teks_materi}"
+    )
+    return system, user
+
+
+_PENANDA_STRUKTUR = {
+    "cek": ("[CEK]", "soal sisipan [CEK]"),
+    "latihan": ("[EXERCISE]", "blok [EXERCISE]"),
+    "proyek": ("[PROJECT]", "blok [PROJECT]"),
+    "ringkasan": ("[SUMMARY]", "blok [SUMMARY]"),
+    "contoh": ("[EXAMPLE]", "blok [EXAMPLE]"),
+}
+
+
+def _cek_struktur(template: PedagogyTemplate, teks: str) -> list[str]:
+    """Cek struktur lunak terhadap template: bagian WAJIB yang penandanya
+    tidak ditemukan menjadi PERINGATAN (bukan penolakan) pada hasil
+    generate — validasi berubah dari polisi format jadi umpan balik."""
+    peringatan = []
+    for b in template.bagian or []:
+        if b.get("status") != "wajib":
+            continue
+        penanda = _PENANDA_STRUKTUR.get(b.get("peran"))
+        if penanda and penanda[0] not in teks:
+            peringatan.append(
+                f"Alur '{template.nama}': bagian wajib '{b['label']}' tampaknya tidak dibuat AI "
+                f"(tidak ditemukan {penanda[1]}). Periksa drafnya — Anda bisa menambahkannya lewat editor."
+            )
+    return peringatan
+
+
+def _bangun_konteks(db: Session, subject, meeting, kind: str, brief: dict) -> str:
+    """Konteks kesinambungan untuk generate dari dalam pertemuan (desain
+    3-AI): info kelas + rencana pertemuan ini + ringkasan AKTUAL pertemuan
+    sebelumnya. Untuk kuis, yang paling relevan adalah isi aktual
+    pertemuan ini sendiri (yang benar-benar diajarkan)."""
+    from ..models import Meeting
+    from ..ringkasan import segarkan_ringkasan
+
+    baris = ["KONTEKS KELAS (untuk kesinambungan antarpertemuan):"]
+    info = f"Kelas: {subject.nama}"
+    if subject.jenjang:
+        info += f" — jenjang {subject.jenjang}"
+    if subject.target_siswa:
+        info += f"; target siswa: {subject.target_siswa}"
+    if subject.tujuan_akhir:
+        info += f"; tujuan akhir: {subject.tujuan_akhir}"
+    baris.append(info)
+    rencana = meeting.rencana or {}
+    if rencana:
+        potongan = f"Rencana pertemuan ini ('{meeting.judul}')"
+        if rencana.get("tujuan"):
+            potongan += f" — tujuan: {rencana['tujuan']}"
+        if rencana.get("konsep"):
+            potongan += "; konsep kunci: " + ", ".join(rencana["konsep"])
+        if rencana.get("aktivitas"):
+            potongan += "; aktivitas: " + ", ".join(rencana["aktivitas"])
+        baris.append(potongan + ".")
+    if not _materi_like(kind, brief):
+        ringkasan_ini = segarkan_ringkasan(db, meeting)
+        if ringkasan_ini:
+            baris.append(
+                "Isi aktual pertemuan ini (buat soal HANYA dari yang benar-benar diajarkan ini):\n"
+                + ringkasan_ini
+            )
+    sebelumnya = (
+        db.query(Meeting)
+        .filter(Meeting.subject_id == subject.id, Meeting.urutan < meeting.urutan)
+        .order_by(Meeting.urutan)
+        .all()
+    )
+    ringkasan_lalu = []
+    for m in sebelumnya[-6:]:
+        teks = segarkan_ringkasan(db, m)
+        if teks:
+            ringkasan_lalu.append(teks)
+    if ringkasan_lalu:
+        baris.append(
+            "Pertemuan sebelumnya (aktual, sudah diajarkan — JANGAN jelaskan ulang konsepnya, "
+            "rujuk seperlunya dan pakai istilah yang sama):\n" + "\n".join(ringkasan_lalu)[:3000]
+        )
+    return "\n".join(baris)
 
 
 class GenerateIn(BaseModel):
     kind: str = Field(pattern="^(materi|kuis_pg|kuis_esai|dokumen)$")
     pack_id: int
     ai_setting_id: Optional[int] = None
+    template_id: Optional[int] = None
     brief: dict = Field(default_factory=dict)
 
 
@@ -207,21 +422,94 @@ class GenerateIn(BaseModel):
 def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depends(get_db)):
     if not (body.brief.get("topik") or "").strip():
         raise HTTPException(status_code=400, detail="Brief wajib berisi topik.")
-    pack = db.get(ParserPack, body.pack_id)
-    if pack is None or not can_access_pack(db, user, pack):
-        raise HTTPException(status_code=404, detail="Paket tidak ditemukan.")
+    # Konteks pertemuan (bila brief membawa subject_id+meeting_id —
+    # generate diluncurkan dari dalam kelas): bangun blok kesinambungan
+    # dan tebak template dari rencana pertemuan / default kelas.
+    konteks_blok = ""
+    template_id_efektif = body.template_id
+    subj_id, meet_id = body.brief.get("subject_id"), body.brief.get("meeting_id")
+    if subj_id and meet_id:
+        try:
+            subject = get_subject(db, int(subj_id))
+            meeting = get_meeting(db, int(meet_id))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Konteks pertemuan tidak sah.")
+        require_subject_manage(db, user, subject)
+        if meeting.subject_id != subject.id:
+            raise HTTPException(status_code=400, detail="Pertemuan tidak termasuk kelas ini.")
+        konteks_blok = _bangun_konteks(db, subject, meeting, body.kind, body.brief)
+        if not template_id_efektif:
+            from ..pedagogi import ensure_preset_templates
+
+            ensure_preset_templates(db)
+            nama_alur = (meeting.rencana or {}).get("alur")
+            candidates = db.query(PedagogyTemplate).all()
+            if nama_alur:
+                for t in candidates:
+                    if t.nama == nama_alur and can_access_template(user, t):
+                        template_id_efektif = t.id
+                        break
+            if not template_id_efektif and subject.template_default_id:
+                template_id_efektif = subject.template_default_id
+
+    # Template pedagogi (bila dipilih): paket efektif berasal dari
+    # template (rujukannya / paket dasar), dan spec DISARING oleh modul
+    # yang dipakai bagian-bagian template.
+    template: Optional[PedagogyTemplate] = None
+    if template_id_efektif:
+        template = db.get(PedagogyTemplate, template_id_efektif)
+        if template is None or not can_access_template(user, template):
+            raise HTTPException(status_code=404, detail="Template tidak ditemukan.")
+        pack = resolve_pack(db, user, template)
+        if pack is None:
+            raise HTTPException(status_code=400, detail="Template ini tidak memiliki paket yang bisa dipakai.")
+    else:
+        pack = db.get(ParserPack, body.pack_id)
+        if pack is None or not can_access_pack(db, user, pack):
+            raise HTTPException(status_code=404, detail="Paket tidak ditemukan.")
     setting = _resolve_setting(db, user, body.ai_setting_id)
 
-    system_prompt = build_system_prompt(db, pack, body.kind)
-    slugs = [m.slug for m in pack_module_rows(db, pack)]
+    if template is not None:
+        slugs, tag_pilihan_sempit = narrowed_selection(db, template, pack)
+        spec_sempit = spec_text_for_selection(db, slugs, tag_pilihan_sempit)
+        system_prompt = build_system_prompt(db, pack, body.kind, spec_override=spec_sempit)
+    else:
+        slugs = [m.slug for m in pack_module_rows(db, pack)]
+        system_prompt = build_system_prompt(db, pack, body.kind)
     roots_pack = pack.allowed_roots or roots_for_slugs(slugs)
     boleh_materi = any(r in roots_pack for r in ("MATERIAL", "EXERCISE", "PROJECT"))
-    user_prompt = _brief_to_user_prompt(body.kind, body.brief, slugs, boleh_materi=boleh_materi)
+
+    # Dua tahap aktif bila: hasil materi-like, modul cek tersedia, dan
+    # (template punya bagian cek ATAU guru mengatur kepadatan eksplisit).
+    kepadatan = str(body.brief.get("kepadatan_cek") or "").strip().lower()
+    template_punya_cek = bool(
+        template and any(b.get("peran") == "cek" for b in (template.bagian or []))
+    )
+    dua_tahap = bool(
+        _materi_like(body.kind, body.brief)
+        and "cek-pemahaman" in slugs
+        and (template_punya_cek or kepadatan in KEPADATAN_CEK)
+    )
+    user_prompt = _brief_to_user_prompt(
+        body.kind, body.brief, slugs, boleh_materi=boleh_materi, dua_tahap=dua_tahap
+    )
+    if konteks_blok:
+        user_prompt += "\n\n" + konteks_blok
+    if template is not None and _materi_like(body.kind, body.brief):
+        urutan = instruksi_urutan(template)
+        if urutan:
+            user_prompt += "\n\n" + urutan
+    if dua_tahap:
+        user_prompt += (
+            "\n\nCATATAN TAHAP PENULISAN: pada tahap ini JANGAN menulis soal [CEK] apa pun — "
+            "tulis isi materinya saja selengkap dan sestruktur mungkin. Soal sisipan ditambahkan "
+            "pada tahap berikutnya berdasarkan materi yang sudah jadi."
+        )
     job = GenerationJob(
         user_id=user.id,
         pack_id=pack.id,
         ai_setting_id=setting.id,
-        brief={**body.brief, "kind": body.kind},
+        brief={**body.brief, "kind": body.kind, "template_id": template_id_efektif},
         prompt_final=system_prompt + "\n\n---\n\n" + user_prompt,
         status="running",
     )
@@ -242,6 +530,53 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
         job.finished_at = datetime.now(timezone.utc)
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
+
+    peringatan: list[str] = []
+    if dua_tahap:
+        # TAHAP 2: soal sisipan ditulis BERDASARKAN materi jadi, lalu
+        # disisipkan di akhir bagian targetnya. Kegagalan tahap 2 tidak
+        # menggagalkan generate — materi tetap menjadi draf (tanpa soal
+        # sisipan baru) dan guru diberi tahu lewat peringatan.
+        mentah = _strip_cek(raw)
+        target = KEPADATAN_CEK.get(kepadatan, KEPADATAN_CEK["sedang"])
+        try:
+            spec_cek = spec_text_for_selection(
+                db,
+                ["cek-pemahaman"],
+                {"cek-pemahaman": list(pack.tag_pilihan.get("cek-pemahaman", []))}
+                if pack.tag_pilihan and pack.tag_pilihan.get("cek-pemahaman")
+                else None,
+            )
+            sys2, usr2 = _prompt_tahap2(mentah, target)
+            raw2 = chat_completion(
+                setting,
+                [
+                    {"role": "system", "content": sys2 + "\n\n" + spec_cek},
+                    {"role": "user", "content": usr2},
+                ],
+            )
+            units = []
+            from ..tcml.cek import extract_ceks
+
+            for target_heading, blok in _UNIT_TAHAP2_RE.findall(raw2):
+                _, errs = extract_ceks(blok)
+                if not errs:
+                    units.append((target_heading, blok))
+            if units:
+                raw = _sisipkan_cek(mentah, units, target)
+            else:
+                raw = mentah
+                peringatan.append(
+                    "Tahap soal sisipan tidak menghasilkan soal yang sah — draf berisi materi saja. "
+                    "Anda bisa menambahkan Cek Pemahaman lewat editor."
+                )
+        except ProviderError:
+            raw = mentah
+            peringatan.append(
+                "Tahap soal sisipan gagal dihubungi — draf berisi materi saja, tanpa soal sisipan baru."
+            )
+    if template is not None:
+        peringatan.extend(_cek_struktur(template, raw))
 
     job.raw_output = raw
     job.status = "done"
@@ -296,6 +631,9 @@ def generate(body: GenerateIn, user: User = Depends(_staff), db: Session = Depen
         "job_id": job.id,
         "model": setting.model,
         "pack_id": pack.id,
+        "template_id": template_id_efektif,
+        "dua_tahap": dua_tahap,
+        "peringatan_struktur": peringatan,
         "drafts": [draft_out(d) for d in drafts],
     }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
@@ -23,12 +23,22 @@ interface QuizBrief {
   grup_dokumen: string | null;
   jenis: string;
 }
+interface RencanaItem {
+  judul: string;
+  tujuan: string;
+  konsep: string[];
+  aktivitas: string[];
+  alur: string | null;
+  meeting_id?: number | null;
+}
 interface Meeting {
   id: number;
   judul: string;
   urutan: number;
   tanggal: string | null;
   deskripsi: string | null;
+  rencana?: RencanaItem | null;
+  ringkasan?: string | null;
   materials: MaterialBrief[];
   quizzes: QuizBrief[];
   jumlah_kuis: number;
@@ -39,6 +49,12 @@ interface SubjectDetail {
   deskripsi: string | null;
   is_archived: boolean;
   bisa_kelola: boolean;
+  jenjang?: string | null;
+  target_siswa?: string | null;
+  tujuan_akhir?: string | null;
+  kurikulum?: RencanaItem[] | null;
+  template_default_id?: number | null;
+  pack_default_id?: number | null;
   meetings: Meeting[];
 }
 interface Member {
@@ -147,7 +163,21 @@ export default function KelasDetailPage() {
   } | null>(null);
 
   // U2 audit UX: halaman kelas bertab (konten adalah tab bawaan).
-  const [tab, setTab] = useState<"konten" | "pengumuman" | "siswa" | "progress">("konten");
+  const [tab, setTab] = useState<"konten" | "pengumuman" | "siswa" | "progress" | "kurikulum">("konten");
+  // Kurikulum & info kelas (2026-10-21, desain 3-AI)
+  const [kJenjang, setKJenjang] = useState("");
+  const [kTarget, setKTarget] = useState("");
+  const [kTujuan, setKTujuan] = useState("");
+  const [kTemplate, setKTemplate] = useState("");
+  const [kPack, setKPack] = useState("");
+  const [rencana, setRencana] = useState<RencanaItem[]>([]);
+  const [tplOptions, setTplOptions] = useState<{ id: number; nama: string }[]>([]);
+  const [packOptions, setPackOptions] = useState<{ id: number; nama: string }[]>([]);
+  const [kurJumlah, setKurJumlah] = useState("8");
+  const [kurMode, setKurMode] = useState<"nol" | "rapikan">("nol");
+  const [kurTeks, setKurTeks] = useState("");
+  const [kurBusy, setKurBusy] = useState(false);
+  const kurSinkron = useRef<number | null>(null);
   const [openMeetings, setOpenMeetings] = useState<Set<number> | null>(null);
   // U5: form siswa baru langsung di kelas.
   const [nsUsername, setNsUsername] = useState("");
@@ -165,6 +195,97 @@ export default function KelasDetailPage() {
       setError(err instanceof Error ? err.message : "Gagal memuat kelas.");
     }
   }, [sid]);
+
+  // Sinkronkan form kurikulum dari data kelas SEKALI per kelas (editan guru
+  // sesudahnya tidak ditimpa oleh pemuatan ulang biasa).
+  useEffect(() => {
+    if (!subject || kurSinkron.current === subject.id) return;
+    kurSinkron.current = subject.id;
+    setKJenjang(subject.jenjang ?? "");
+    setKTarget(subject.target_siswa ?? "");
+    setKTujuan(subject.tujuan_akhir ?? "");
+    setKTemplate(subject.template_default_id ? String(subject.template_default_id) : "");
+    setKPack(subject.pack_default_id ? String(subject.pack_default_id) : "");
+    setRencana((subject.kurikulum ?? []).map((r) => ({ ...r, konsep: [...(r.konsep ?? [])], aktivitas: [...(r.aktivitas ?? [])] })));
+  }, [subject]);
+
+  async function muatOpsiKurikulum() {
+    if (tplOptions.length > 0) return;
+    try {
+      const tpl = await apiFetch<{ preset: { id: number; nama: string }[]; saya: { id: number; nama: string }[]; dibagikan: { id: number; nama: string }[] }>("/api/v1/templates");
+      setTplOptions([...tpl.preset, ...tpl.saya, ...tpl.dibagikan]);
+      const mine = await apiFetch<{ id: number; nama: string }[]>("/api/v1/packs");
+      const shared = await apiFetch<{ id: number; nama: string }[]>("/api/v1/packs/shared");
+      setPackOptions([...mine, ...shared]);
+    } catch { /* diam — opsi kosong tidak menghalangi jalur manual */ }
+  }
+
+  async function simpanInfoKelas() {
+    setError("");
+    try {
+      await apiFetch(`/api/v1/subjects/${sid}`, {
+        method: "PATCH",
+        body: {
+          jenjang: kJenjang, target_siswa: kTarget, tujuan_akhir: kTujuan,
+          template_default_id: kTemplate ? Number(kTemplate) : undefined,
+          pack_default_id: kPack ? Number(kPack) : undefined,
+        },
+      });
+      setOk("Info kelas tersimpan — dipakai sebagai konteks generate AI.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan info kelas.");
+    }
+  }
+
+  async function generateKurikulum() {
+    setKurBusy(true);
+    setError("");
+    try {
+      const r = await apiFetch<{ rencana: RencanaItem[] }>(`/api/v1/subjects/${sid}/kurikulum/generate`, {
+        method: "POST",
+        body: {
+          mode: kurMode,
+          jumlah_pertemuan: Number(kurJumlah) || 8,
+          teks_kurikulum: kurMode === "rapikan" ? kurTeks : undefined,
+        },
+      });
+      setRencana(r.rencana.map((x) => ({ ...x, meeting_id: null })));
+      setOk("Draf kurikulum dibuat AI — periksa & edit di bawah, lalu Simpan Rencana.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Generate kurikulum gagal.");
+    } finally {
+      setKurBusy(false);
+    }
+  }
+
+  async function simpanRencana() {
+    setError("");
+    try {
+      const bersih = rencana.filter((r) => r.judul.trim());
+      await apiFetch(`/api/v1/subjects/${sid}/kurikulum`, { method: "PUT", body: { pertemuan: bersih } });
+      setOk("Rencana kurikulum tersimpan.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan rencana.");
+    }
+  }
+
+  async function terapkanRencana() {
+    setError("");
+    try {
+      const r = await apiFetch<{ dibuat: number; total: number }>(`/api/v1/subjects/${sid}/kurikulum/terapkan`, { method: "POST" });
+      setOk(`Rencana diterapkan: ${r.dibuat} pertemuan baru dibuat (${r.total} total di rencana). Lihat di tab Konten.`);
+      kurSinkron.current = null; // paksa sinkron ulang rencana (meeting_id baru)
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menerapkan rencana.");
+    }
+  }
+
+  function ubahRencana(i: number, patch: Partial<RencanaItem>) {
+    setRencana((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  }
 
   async function addAnnouncement(e: React.FormEvent) {
     e.preventDefault();
@@ -579,6 +700,7 @@ export default function KelasDetailPage() {
         {(
           [
             ["konten", "📚 Konten"],
+            ...(kelola ? [["kurikulum", "🧭 Kurikulum"] as const] : []),
             ["pengumuman", "📢 Pengumuman"],
             ["siswa", `👥 Siswa (${members.length})`],
             ["progress", "📈 Progress"],
@@ -586,7 +708,7 @@ export default function KelasDetailPage() {
         ).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => { setTab(key); if (key === "kurikulum") muatOpsiKurikulum(); }}
             style={{
               border: "none", background: "none", padding: "9px 14px", fontWeight: 700, cursor: "pointer",
               color: tab === key ? "var(--primary)" : "var(--muted)",
@@ -603,6 +725,7 @@ export default function KelasDetailPage() {
         const hasMeeting = subject.meetings.length > 0;
         const hasContent = subject.meetings.some((m) => m.materials.length > 0 || m.quizzes.length > 0);
         const hasStudents = members.length > 0;
+        const hasKurikulum = (subject.kurikulum ?? []).length > 0;
         if (hasMeeting && hasContent && hasStudents) return null;
         const item = (done: boolean, n: number, teks: React.ReactNode) => (
           <li style={{ listStyle: "none", padding: "5px 0", display: "flex", gap: 9, alignItems: "flex-start" }}>
@@ -619,13 +742,113 @@ export default function KelasDetailPage() {
           <div className="card" style={{ marginTop: 14, borderLeft: "5px solid var(--primary)" }}>
             <h3>🚀 Mulai Kelas Ini</h3>
             <ul style={{ marginTop: 6 }}>
-              {item(hasMeeting, 1, <><strong>Buat pertemuan pertama</strong>{hasMeeting ? " — selesai" : " — pakai form Tambah Pertemuan di bawah daftar pertemuan."}</>)}
-              {item(hasContent, 2, <><strong>Tambah materi atau kuis</strong>{hasContent ? " — selesai" : " — tombol ➕ pada kartu pertemuan; editor kuis kini punya mode Formulir."}</>)}
-              {item(hasStudents, 3, <><strong>Daftarkan siswa</strong>{hasStudents ? ` — ${members.length} siswa terdaftar` : <> — lewat tab <button className="btn btn-sm" onClick={() => setTab("siswa")}>👥 Siswa</button>: buat akun baru di sana, langsung terdaftar di kelas ini.</>}</>)}
+              {item(hasKurikulum, 1, <><strong>Susun kurikulum (opsional, disarankan)</strong>{hasKurikulum ? " — selesai" : <> — di tab <button className="btn btn-sm" onClick={() => { setTab("kurikulum"); muatOpsiKurikulum(); }}>🧭 Kurikulum</button>: AI menyusun rencana per pertemuan dari info kelas, lalu pertemuan dibuat otomatis dari rencana.</>}</>)}
+              {item(hasMeeting, 2, <><strong>Buat pertemuan pertama</strong>{hasMeeting ? " — selesai" : " — pakai form Tambah Pertemuan di bawah daftar pertemuan, atau terapkan rencana kurikulum."}</>)}
+              {item(hasContent, 3, <><strong>Tambah materi atau kuis</strong>{hasContent ? " — selesai" : " — tombol ➕ pada kartu pertemuan; editor kuis kini punya mode Formulir."}</>)}
+              {item(hasStudents, 4, <><strong>Daftarkan siswa</strong>{hasStudents ? ` — ${members.length} siswa terdaftar` : <> — lewat tab <button className="btn btn-sm" onClick={() => setTab("siswa")}>👥 Siswa</button>: buat akun baru di sana, langsung terdaftar di kelas ini.</>}</>)}
             </ul>
           </div>
         );
       })()}
+
+      {tab === "kurikulum" && kelola && (
+        <>
+          <div className="card" style={{ marginTop: 14 }}>
+            <h3>🧭 Info Kelas untuk AI (semua opsional)</h3>
+            <p className="muted" style={{ marginTop: 2 }}>
+              Info ini menjadi konteks kurikulum &amp; generate konten — kelas tetap bisa berjalan tanpa mengisinya.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12, marginTop: 8 }}>
+              <div>
+                <label className="label">Jenjang / kelas</label>
+                <input className="input" value={kJenjang} onChange={(e) => setKJenjang(e.target.value)} placeholder="mis. SD Kelas 5" />
+              </div>
+              <div>
+                <label className="label">Alur mengajar default</label>
+                <select className="select" value={kTemplate} onChange={(e) => setKTemplate(e.target.value)}>
+                  <option value="">— ikuti rencana per pertemuan —</option>
+                  {tplOptions.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nama}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Paket parser default</label>
+                <select className="select" value={kPack} onChange={(e) => setKPack(e.target.value)}>
+                  <option value="">— pilih saat generate —</option>
+                  {packOptions.map((p) => (
+                    <option key={p.id} value={p.id}>{p.nama}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <label className="label">Target siswa</label>
+            <input className="input" value={kTarget} onChange={(e) => setKTarget(e.target.value)} placeholder="mis. Anak usia 10–11 tahun, pemula komputer" />
+            <label className="label">Tujuan akhir pembelajaran</label>
+            <input className="input" value={kTujuan} onChange={(e) => setKTujuan(e.target.value)} placeholder="mis. Siswa mahir mengolah angka dasar dengan spreadsheet" />
+            <div style={{ marginTop: 10 }}>
+              <button className="btn btn-primary" onClick={simpanInfoKelas}>💾 Simpan Info Kelas</button>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: 14 }}>
+            <h3>✨ Susun Kurikulum</h3>
+            <div className="seg-toggle" role="tablist" aria-label="Mode kurikulum" style={{ marginTop: 6 }}>
+              <button type="button" role="tab" aria-selected={kurMode === "nol"} className={kurMode === "nol" ? "on" : ""} onClick={() => setKurMode("nol")}>Buat dari Nol</button>
+              <button type="button" role="tab" aria-selected={kurMode === "rapikan"} className={kurMode === "rapikan" ? "on" : ""} onClick={() => setKurMode("rapikan")}>Rapikan Kurikulum Saya</button>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
+              <div>
+                <label className="label">Jumlah pertemuan</label>
+                <input className="input" type="number" min={1} max={60} style={{ maxWidth: 130 }} value={kurJumlah} onChange={(e) => setKurJumlah(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={generateKurikulum} disabled={kurBusy}>
+                {kurBusy ? "⏳ AI menyusun..." : "✨ Susun dengan AI"}
+              </button>
+            </div>
+            {kurMode === "rapikan" && (
+              <>
+                <label className="label">Tempel kurikulum / silabus Anda</label>
+                <textarea className="textarea" rows={7} value={kurTeks} onChange={(e) => setKurTeks(e.target.value)} placeholder="Tempel silabus apa adanya — AI memetakannya ke pertemuan tanpa mengubah isi & istilah Anda sebisa mungkin." />
+              </>
+            )}
+            <p className="muted" style={{ marginTop: 8 }}>
+              Hasil AI adalah <strong>draf rencana</strong> — edit bebas di bawah (atau tulis rencana manual tanpa AI), simpan, lalu terapkan menjadi pertemuan.
+            </p>
+          </div>
+
+          <div className="card" style={{ marginTop: 14 }}>
+            <h3>📋 Rencana per Pertemuan ({rencana.length})</h3>
+            {rencana.map((r, i) => (
+              <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 10, marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <strong>{i + 1}.</strong>
+                  <input className="input" style={{ flex: 1, minWidth: 200 }} value={r.judul} onChange={(e) => ubahRencana(i, { judul: e.target.value })} placeholder="Judul pertemuan" />
+                  <select className="select" style={{ maxWidth: 210 }} value={r.alur ?? ""} onChange={(e) => ubahRencana(i, { alur: e.target.value || null })}>
+                    <option value="">— alur default kelas —</option>
+                    {tplOptions.map((t) => (
+                      <option key={t.id} value={t.nama}>{t.nama}</option>
+                    ))}
+                  </select>
+                  {r.meeting_id ? <span className="badge">✓ pertemuan dibuat</span> : <span className="badge badge-off">belum dibuat</span>}
+                  <button className="btn btn-sm btn-danger" onClick={() => setRencana((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+                <input className="input" style={{ marginTop: 8 }} value={r.tujuan} onChange={(e) => ubahRencana(i, { tujuan: e.target.value })} placeholder="Tujuan pertemuan (1 kalimat)" />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10, marginTop: 8 }}>
+                  <input className="input" value={r.konsep.join(", ")} onChange={(e) => ubahRencana(i, { konsep: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) })} placeholder="Konsep kunci, pisahkan koma" />
+                  <input className="input" value={r.aktivitas.join(", ")} onChange={(e) => ubahRencana(i, { aktivitas: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) })} placeholder="Aktivitas, pisahkan koma (studi kasus, diskusi, ...)" />
+                </div>
+              </div>
+            ))}
+            {rencana.length === 0 && <p className="muted" style={{ marginTop: 8 }}>Belum ada rencana. Susun dengan AI di atas, atau tambah baris manual.</p>}
+            <div className="row-actions" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={() => setRencana((prev) => [...prev, { judul: "", tujuan: "", konsep: [], aktivitas: [], alur: null, meeting_id: null }])}>➕ Baris Manual</button>
+              <button className="btn btn-primary" onClick={simpanRencana} disabled={rencana.length === 0}>💾 Simpan Rencana</button>
+              <button className="btn" onClick={terapkanRencana} disabled={rencana.length === 0}>🏗️ Buat Pertemuan dari Rencana</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {tab === "progress" && progress && (
         <div className="card" style={{ marginTop: 14 }}>
@@ -774,6 +997,9 @@ export default function KelasDetailPage() {
             <div style={{ marginTop: 12 }}>
               <div className="row-actions">
                 <Link className="btn btn-sm btn-primary" href={`/editor/dokumen?meeting=${m.id}&kelas=${sid}`}>➕ Konten Baru</Link>
+                <Link className="btn btn-sm" href={`/generate?subject=${sid}&meeting=${m.id}&jenis=dokumen&topik=${encodeURIComponent(m.rencana?.tujuan ? `${m.judul} — ${m.rencana.tujuan}` : m.judul)}`}>
+                  {m.rencana ? "✨ Generate dari Rencana" : "✨ Generate AI"}
+                </Link>
                 <button className="btn btn-sm" onClick={() => openBank(m.id)}>📚 Ambil dari Bank</button>
                 <button className="btn btn-sm" onClick={() => openCompose(m.id)}>🎲 Susun dari Bank Soal</button>
               </div>

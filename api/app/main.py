@@ -19,12 +19,14 @@ from .routers import (
     dashboard,
     documents,
     generate,
+    kurikulum,
     learning,
     materials,
     packs,
     quizzes,
     students,
     subjects,
+    templates,
 )
 from .tcml import parse_material, parse_quiz_mcq, parse_quiz_text
 from .tcml.registry import MODULES
@@ -63,10 +65,12 @@ app.include_router(admin_users.router)
 app.include_router(students.router)
 app.include_router(ai_settings.router)
 app.include_router(subjects.router)
+app.include_router(kurikulum.router)
 app.include_router(materials.router)
 app.include_router(bank.router)
 app.include_router(quizzes.router)
 app.include_router(packs.router)
+app.include_router(templates.router)
 app.include_router(generate.router)
 app.include_router(learning.router)
 app.include_router(dashboard.router)

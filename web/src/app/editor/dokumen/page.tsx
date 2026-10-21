@@ -1113,8 +1113,16 @@ function EditorDokumenInner() {
           brief: {
             topik: aiTopik,
             jumlah_soal: aiJumlah ? Number(aiJumlah) : undefined,
+            // Materi/tugas: soal sisipan memakai kepadatan (bukan kuota) dan
+            // ditulis pada tahap kedua dari materi jadi. Kuis/ujian tetap
+            // memakai jumlah pasti di atas.
+            kepadatan_cek: jenisDok === "materi" || jenisDok === "tugas" ? "sedang" : undefined,
             instruksi: aiInstruksi || undefined,
             jenis_dokumen: jenisDok,
+            // Konteks pertemuan: server menyuntikkan rencana + ringkasan
+            // pertemuan sebelumnya dan menebak alur dari rencana.
+            subject_id: kelasParam ? Number(kelasParam) : undefined,
+            meeting_id: meetingParam ? Number(meetingParam) : undefined,
           },
         },
       });
@@ -1370,8 +1378,11 @@ function EditorDokumenInner() {
               </select>
             </div>
             <div>
-              <label className="label">Jumlah soal kuis</label>
+              <label className="label">{jenisDok === "kuis" || jenisDok === "ujian" ? "Jumlah soal kuis" : "Jumlah soal kuis pendamping"}</label>
               <input type="number" min={1} max={30} className="input" value={aiJumlah} onChange={(e) => setAiJumlah(e.target.value)} />
+              {(jenisDok === "materi" || jenisDok === "tugas") && (
+                <p className="muted" style={{ marginTop: 4 }}>Soal sisipan Cek Pemahaman memakai kepadatan sedang (±4, ditulis dari materi jadi) — angka ini hanya untuk kuis pendamping bila ada.</p>
+              )}
             </div>
           </div>
           <label className="label">Topik</label>

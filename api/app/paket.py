@@ -260,7 +260,9 @@ def build_spec_text(db: Session, pack: ParserPack) -> str:
     return spec_text_for_selection(db, slugs, pack.tag_pilihan)
 
 
-def build_system_prompt(db: Session, pack: ParserPack, kind: str) -> str:
+def build_system_prompt(
+    db: Session, pack: ParserPack, kind: str, spec_override: str | None = None
+) -> str:
     roots = ", ".join(f"[{r}]" for r in (pack.allowed_roots or []))
     return (
         "Kamu adalah penulis konten pembelajaran untuk LMS Lifunze. Kamu menulis konten "
@@ -273,7 +275,7 @@ def build_system_prompt(db: Session, pack: ParserPack, kind: str) -> str:
         f"- Root block yang diizinkan paket ini: {roots}.\n"
         "- Gunakan HANYA tag yang ada pada modul-modul paket di bawah ini.\n"
         "- Bahasa konten: Bahasa Indonesia.\n\n"
-        f"{build_spec_text(db, pack)}"
+        f"{spec_override if spec_override is not None else build_spec_text(db, pack)}"
     )
 
 

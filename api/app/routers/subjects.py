@@ -31,6 +31,12 @@ def subject_out(db: Session, s: Subject) -> dict:
         "deskripsi": s.deskripsi,
         "dibuat_oleh": s.dibuat_oleh,
         "is_archived": s.is_archived,
+        "jenjang": s.jenjang,
+        "target_siswa": s.target_siswa,
+        "tujuan_akhir": s.tujuan_akhir,
+        "kurikulum": s.kurikulum,
+        "template_default_id": s.template_default_id,
+        "pack_default_id": s.pack_default_id,
         "jumlah_pertemuan": db.query(Meeting).filter(Meeting.subject_id == s.id).count(),
         "jumlah_siswa": db.query(Enrollment).filter(Enrollment.subject_id == s.id).count(),
         "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -68,6 +74,8 @@ def meeting_out(db: Session, m: Meeting) -> dict:
         "urutan": m.urutan,
         "tanggal": m.tanggal.isoformat() if m.tanggal else None,
         "deskripsi": m.deskripsi,
+        "rencana": m.rencana,
+        "ringkasan": m.ringkasan,
         "materials": [
             {
                 "id": mt.id,
@@ -100,6 +108,12 @@ def meeting_out(db: Session, m: Meeting) -> dict:
 class SubjectIn(BaseModel):
     nama: str = Field(min_length=1, max_length=200)
     deskripsi: Optional[str] = None
+    # Info konteks AI — semua opsional (kelas bisa dibuat hanya dengan nama).
+    jenjang: Optional[str] = None
+    target_siswa: Optional[str] = None
+    tujuan_akhir: Optional[str] = None
+    template_default_id: Optional[int] = None
+    pack_default_id: Optional[int] = None
 
 
 @router.get("")
@@ -125,7 +139,16 @@ def list_subjects(
 
 @router.post("", status_code=201, dependencies=[Depends(require_csrf)])
 def create_subject(body: SubjectIn, user: User = Depends(staff), db: Session = Depends(get_db)):
-    s = Subject(nama=body.nama.strip(), deskripsi=body.deskripsi, dibuat_oleh=user.id)
+    s = Subject(
+        nama=body.nama.strip(),
+        deskripsi=body.deskripsi,
+        dibuat_oleh=user.id,
+        jenjang=body.jenjang,
+        target_siswa=body.target_siswa,
+        tujuan_akhir=body.tujuan_akhir,
+        template_default_id=body.template_default_id,
+        pack_default_id=body.pack_default_id,
+    )
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -149,6 +172,11 @@ class SubjectPatchIn(BaseModel):
     nama: Optional[str] = Field(default=None, min_length=1, max_length=200)
     deskripsi: Optional[str] = None
     is_archived: Optional[bool] = None
+    jenjang: Optional[str] = None
+    target_siswa: Optional[str] = None
+    tujuan_akhir: Optional[str] = None
+    template_default_id: Optional[int] = None
+    pack_default_id: Optional[int] = None
 
 
 @router.patch("/{subject_id}", dependencies=[Depends(require_csrf)])
@@ -166,6 +194,12 @@ def update_subject(
         s.deskripsi = body.deskripsi
     if body.is_archived is not None:
         s.is_archived = body.is_archived
+    # Info konteks: hanya field yang dikirim (bukan None) yang diubah —
+    # mengosongkan memakai string kosong dari UI.
+    for kolom in ("jenjang", "target_siswa", "tujuan_akhir", "template_default_id", "pack_default_id"):
+        nilai = getattr(body, kolom)
+        if nilai is not None:
+            setattr(s, kolom, nilai if nilai != "" else None)
     db.commit()
     db.refresh(s)
     return subject_out(db, s)

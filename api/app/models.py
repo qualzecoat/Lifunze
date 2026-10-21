@@ -109,6 +109,21 @@ class Subject(Base, TimestampMixin):
     deskripsi: Mapped[Optional[str]] = mapped_column(Text)
     dibuat_oleh: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Konteks kelas untuk AI (2026-10-21, desain 3-AI): semua OPSIONAL —
+    # kelas tetap bisa dibuat hanya dengan nama. Diisi bertahap lewat
+    # wizard kurikulum; dipakai generate sebagai konteks.
+    jenjang: Mapped[Optional[str]] = mapped_column(String(100))
+    target_siswa: Mapped[Optional[str]] = mapped_column(Text)
+    tujuan_akhir: Mapped[Optional[str]] = mapped_column(Text)
+    # Rencana kurikulum terstruktur: list per pertemuan
+    # {judul, tujuan, konsep: [...], aktivitas: [...], template: slug/id?}.
+    kurikulum: Mapped[Optional[list]] = mapped_column(JSON)
+    template_default_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("pedagogy_templates.id")
+    )
+    pack_default_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("parser_packs.id")
+    )
 
     meetings: Mapped[list["Meeting"]] = relationship(
         back_populates="subject", cascade="all, delete-orphan", order_by="Meeting.urutan"
@@ -138,6 +153,11 @@ class Meeting(Base, TimestampMixin):
     urutan: Mapped[int] = mapped_column(Integer, nullable=False)
     tanggal: Mapped[Optional[date]] = mapped_column(Date)
     deskripsi: Mapped[Optional[str]] = mapped_column(Text)
+    # Potongan rencana kurikulum untuk pertemuan ini (dari kurikulum kelas)
+    # + ringkasan AKTUAL materi yang sudah diterbitkan (bahan kesinambungan
+    # generate pertemuan berikutnya — aktual, bukan rencana).
+    rencana: Mapped[Optional[dict]] = mapped_column(JSON)
+    ringkasan: Mapped[Optional[str]] = mapped_column(Text)
 
     subject: Mapped["Subject"] = relationship(back_populates="meetings")
     materials: Mapped[list["Material"]] = relationship(
@@ -448,6 +468,29 @@ class ParserPackShare(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     pack_id: Mapped[int] = mapped_column(ForeignKey("parser_packs.id"), nullable=False)
     shared_with_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))  # NULL = semua guru
+
+
+class PedagogyTemplate(Base, TimestampMixin):
+    """Template Alur Mengajar (Pedagogi) — desain gabungan paket+pedagogi
+    2026-10-21. Template TIDAK melebur dengan paket: ia MERUJUK sebuah
+    paket parser (atau paket dasar serba bisa = preset "Kelas Lengkap"
+    milik pemakai, `paket_dasar=True`) dan menentukan URUTAN/KOMPOSISI
+    bagian materi. `bagian` = list JSON:
+    {peran, label, status: wajib|opsional|pilihan, modul: [slug...], catatan}.
+    dibuat_oleh NULL = template bawaan sistem (preset, tak bisa diubah —
+    fork dulu). visibilitas "shared" = terlihat semua guru (v1 sederhana,
+    tidak per-orang seperti share paket)."""
+
+    __tablename__ = "pedagogy_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nama: Mapped[str] = mapped_column(String(200), nullable=False)
+    deskripsi: Mapped[Optional[str]] = mapped_column(Text)
+    dibuat_oleh: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    visibilitas: Mapped[str] = mapped_column(String(20), default="private")
+    pack_id: Mapped[Optional[int]] = mapped_column(ForeignKey("parser_packs.id"))
+    paket_dasar: Mapped[bool] = mapped_column(Boolean, default=True)
+    bagian: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class GenerationJob(Base):
